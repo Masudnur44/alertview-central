@@ -46,7 +46,7 @@ function Dashboard() {
   });
   data.events.forEach((e) => {
     const idx = 23 - Math.floor((Date.now() - new Date(e.occurred_at).getTime()) / 36e5);
-    if (idx >= 0 && idx < 24) { buckets[idx].events++; if (e.outcome === "failure") buckets[idx].failures++; }
+    if (idx >= 0 && idx < 24) { const b = buckets[idx]; if (b) { b.events++; if (e.outcome === "failure") b.failures++; } }
   });
 
   return (

@@ -30,17 +30,20 @@ function Alerts() {
   const cur = data.find((a) => a.id === sel);
 
   async function setStatus(id: string, status: string) {
-    const patch: Record<string, string> = { status };
-    if (status === "acknowledged") patch.acknowledged_at = new Date().toISOString();
-    if (status === "resolved" || status === "false_positive") patch.resolved_at = new Date().toISOString();
+    const now = new Date().toISOString();
+    const patch = {
+      status,
+      ...(status === "acknowledged" ? { acknowledged_at: now } : {}),
+      ...(status === "resolved" || status === "false_positive" ? { resolved_at: now } : {}),
+    };
     const { error } = await supabase.from("alerts").update(patch).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     await audit(`alert.${status}`, id);
     qc.invalidateQueries({ queryKey: ["alerts"] });
   }
   async function escalate(a: (typeof data)[number]) {
     const { data: inc, error } = await supabase.from("incidents").insert({ title: a.title, summary: a.description, severity: a.severity }).select().single();
-    if (error || !inc) return toast.error(error?.message ?? "Failed");
+    if (error || !inc) { toast.error(error?.message ?? "Failed"); return; }
     await supabase.from("alerts").update({ status: "escalated", incident_id: inc.id, acknowledged_at: a.acknowledged_at ?? new Date().toISOString() }).eq("id", a.id);
     await supabase.from("incident_events").insert({ incident_id: inc.id, kind: "created", body: `Incident opened from alert: ${a.title}` });
     await audit("alert.escalate", a.id);

@@ -24,14 +24,14 @@ function Vulns() {
   });
   const rows = (data?.vulns ?? []).map((v) => {
     const targeted = (data?.alerts ?? []).filter((a) => a.asset_id === v.asset_id).length;
-    const base = riskScore({ ...v, criticality: v.assets?.criticality });
+    const base = riskScore({ ...v, criticality: v.assets?.criticality ?? null });
     return { ...v, targeted, risk: Math.min(100, base + (targeted ? 10 : 0)) };
   }).sort((a, b) => b.risk - a.risk);
   const open = rows.filter((r) => r.status !== "fixed");
 
   async function setStatus(id: string, status: string) {
     const { error } = await supabase.from("vulnerabilities").update({ status }).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     await audit(`vuln.${status}`, id);
     qc.invalidateQueries({ queryKey: ["vulns"] });
   }

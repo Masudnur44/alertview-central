@@ -60,7 +60,7 @@ function AddAsset() {
   const [f, setF] = useState({ name: "", asset_type: "website", address: "", owner: "", exposure: "external", criticality: "medium" });
   async function save() {
     const { error } = await supabase.from("assets").insert({ ...f, criticality: f.criticality as Severity, is_new: true });
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     await audit("asset.create", f.name);
     toast.success("Asset added");
     setOpen(false);

@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 export async function audit(action: string, target?: string) {
   const { data } = await supabase.auth.getUser();
   if (!data.user) return;
-  await supabase.from("audit_log").insert({ actor: data.user.id, action, target });
+  await supabase.from("audit_log").insert({ actor: data.user.id, action, target: target ?? null });
 }
 
 export function riskScore(v: { cvss: number | null; exploited_in_wild: boolean; internet_exposed: boolean; criticality?: string | null }) {
