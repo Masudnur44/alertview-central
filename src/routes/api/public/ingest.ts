@@ -25,7 +25,11 @@ export const Route = createFileRoute("/api/public/ingest")({
         let parsed;
         try { parsed = Body.parse(await request.json()); } catch { return new Response("Invalid payload", { status: 400 }); }
         const events = "events" in parsed ? parsed.events : [parsed];
-        const rows = events.map((e) => ({ ...e, raw: (e.raw ?? null) as never, source_id: src.id, occurred_at: e.occurred_at ?? new Date().toISOString() }));
+        const rows = events.map((e) => ({
+          event_type: e.event_type, host: e.host ?? null, username: e.username ?? null, src_ip: e.src_ip ?? null,
+          outcome: e.outcome ?? null, message: e.message ?? null, raw: (e.raw ?? null) as never,
+          source_id: src.id, occurred_at: e.occurred_at ?? new Date().toISOString(),
+        }));
         const { error } = await supabaseAdmin.from("events").insert(rows);
         if (error) return new Response("Storage error", { status: 500 });
         await supabaseAdmin.from("event_sources").update({ last_event_at: new Date().toISOString() }).eq("id", src.id);

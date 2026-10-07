@@ -37,18 +37,18 @@ function Incident() {
   const refresh = () => { qc.invalidateQueries({ queryKey: ["incident", id] }); qc.invalidateQueries({ queryKey: ["incidents"] }); };
 
   async function move(status: string) {
-    const patch: Record<string, string> = { status };
-    if (STAMP[status]) patch[STAMP[status]] = new Date().toISOString();
+    const stamp = STAMP[status];
+    const patch = { status, ...(stamp ? { [stamp]: new Date().toISOString() } : {}) } as { status: string; contained_at?: string; resolved_at?: string; closed_at?: string };
     const { error } = await supabase.from("incidents").update(patch).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     await supabase.from("incident_events").insert({ incident_id: id, kind: "status", body: `Status changed to ${status}` });
     await audit(`incident.${status}`, inc.ref);
     refresh();
   }
   async function addNote() {
     const { data: u } = await supabase.auth.getUser();
-    const { error } = await supabase.from("incident_events").insert({ incident_id: id, kind, body: note, author: u.user?.id });
-    if (error) return toast.error(error.message);
+    const { error } = await supabase.from("incident_events").insert({ incident_id: id, kind, body: note, author: u.user?.id ?? null });
+    if (error) { toast.error(error.message); return; }
     setNote("");
     refresh();
   }

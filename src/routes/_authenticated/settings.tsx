@@ -35,13 +35,13 @@ function Settings() {
 
   async function toggle(id: string, enabled: boolean) {
     const { error } = await supabase.from("detection_rules").update({ enabled }).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     await audit(`rule.${enabled ? "enable" : "disable"}`, id);
     qc.invalidateQueries({ queryKey: ["settings"] });
   }
   async function addSource() {
     const { error } = await supabase.from("event_sources").insert({ name, source_type: "custom" });
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     await audit("source.create", name);
     setName("");
     qc.invalidateQueries({ queryKey: ["settings"] });

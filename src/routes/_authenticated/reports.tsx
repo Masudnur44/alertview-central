@@ -51,7 +51,7 @@ function Reports() {
 
   return (
     <div>
-      <PageHeader title="Security Reports" sub={`${p[0].toUpperCase() + p.slice(1)} report · since ${new Date(since).toLocaleString()}`}
+      <PageHeader title="Security Reports" sub={`${p.charAt(0).toUpperCase() + p.slice(1)} report · since ${new Date(since).toLocaleString()}`}
         action={<div className="flex gap-2">
           {(Object.keys(PERIODS) as (keyof typeof PERIODS)[]).map((k) => (
             <Button key={k} variant={p === k ? "default" : "outline"} size="sm" onClick={() => setP(k)} className="capitalize">{k}</Button>
