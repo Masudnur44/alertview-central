@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { audit } from "@/lib/soc";
+import { RoleManager } from "@/components/soc/RoleManager";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — FINPAY SOC" }, { name: "description", content: "Detection rules, event sources and audit log." }] }),
@@ -27,7 +28,7 @@ function Settings() {
         supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(50),
         supabase.from("user_roles").select("role").eq("user_id", u.user!.id),
       ]);
-      return { rules: rules.data ?? [], sources: sources.data, logs: logs.data, roles: (roles.data ?? []).map((r) => r.role) };
+      return { me: u.user!.id, rules: rules.data ?? [], sources: sources.data, logs: logs.data, roles: (roles.data ?? []).map((r) => r.role) };
     },
   });
   if (!data) return null;
@@ -50,6 +51,7 @@ function Settings() {
   return (
     <div className="space-y-6">
       <PageHeader title="Settings" sub={`Your role: ${data.roles.join(", ").replace(/_/g, " ") || "none"}`} />
+      {data.roles.includes("security_admin") && <RoleManager me={data.me} />}
       <Panel title="Detection rules">
         <ul className="divide-y">
           {data.rules.map((r) => (
