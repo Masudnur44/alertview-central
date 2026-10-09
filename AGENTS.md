@@ -12,3 +12,4 @@
 ## FINPAY SOC
 - Signed-in pages live under src/routes/_authenticated and read data with the browser client; RLS (is_soc_member / can_operate / has_role) is the security boundary.
 - Monitoring/detection logic lives in src/lib/monitor.server.ts and is shared by the run-checks server fn, /api/public/checks (cron secret) and /api/public/ingest (per-source x-soc-key).
+- Hourly checks: pg_cron posts to /api/public/checks with x-scheduler-token read from public.scheduler_token (service-role only), because vault has no cron secret.
