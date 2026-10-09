@@ -395,6 +395,21 @@ export type Database = {
         }
         Relationships: []
       }
+      scheduler_token: {
+        Row: {
+          id: number
+          token: string
+        }
+        Insert: {
+          id?: number
+          token?: string
+        }
+        Update: {
+          id?: number
+          token?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
