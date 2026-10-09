@@ -55,6 +55,15 @@ function Landing() {
           ))}
         </div>
       </main>
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
+          <span className="data text-xs tracking-widest text-muted-foreground">FINPAY//SOC — FINPAYTECH</span>
+          <div className="flex items-center gap-6 text-sm">
+            <a href="mailto:masudn058@gmail.com" className="text-primary hover:underline">masudn058@gmail.com</a>
+            <a href="tel:+254703480258" className="text-primary hover:underline">0703 480 258</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
