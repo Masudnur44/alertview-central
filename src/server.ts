@@ -44,18 +44,52 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+// Security headers on every response (the SOC must pass its own header checks).
+const PROD = process.env.NODE_ENV === "production";
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "form-action 'self' https://accounts.google.com",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "object-src 'none'",
+].join("; ");
+
+function withSecurityHeaders(response: Response, request: Request): Response {
+  const res = new Response(response.body, response);
+  const h = res.headers;
+  h.set("x-content-type-options", "nosniff");
+  h.set("x-frame-options", "DENY");
+  h.set("referrer-policy", "strict-origin-when-cross-origin");
+  h.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  h.set("cross-origin-opener-policy", "same-origin");
+  if (PROD) {
+    h.set("content-security-policy", CSP);
+    if (new URL(request.url).protocol === "https:" || request.headers.get("x-forwarded-proto") === "https") {
+      h.set("strict-transport-security", "max-age=63072000; includeSubDomains");
+    }
+  }
+  const path = new URL(request.url).pathname;
+  if (path.startsWith("/api/") || path.startsWith("/_serverFn")) h.set("cache-control", "no-store");
+  return res;
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return withSecurityHeaders(await normalizeCatastrophicSsrResponse(response), request);
     } catch (error) {
       console.error(error);
-      return new Response(renderErrorPage(), {
-        status: 500,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
+      return withSecurityHeaders(
+        new Response(renderErrorPage(), { status: 500, headers: { "content-type": "text/html; charset=utf-8" } }),
+        request,
+      );
     }
   },
 };

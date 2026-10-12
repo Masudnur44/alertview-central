@@ -1,0 +1,19 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$SOC_DOMAIN} {
+	encode zstd gzip
+	header -Server
+	# Request bodies above 2 MB are never legitimate here (intake limit is 1 MB).
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+	log {
+		output stdout
+		format json
+	}
+}
