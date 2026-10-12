@@ -37,3 +37,7 @@ dist-ssr
 !.env.example
 backups/
 src/routeTree.gen.ts
+
+# Python
+__pycache__/
+*.pyc
