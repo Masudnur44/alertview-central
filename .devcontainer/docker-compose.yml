@@ -1,0 +1,20 @@
+# Codespaces / VS Code dev container: Node 22 workspace + PostgreSQL 16.
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity
+    # Share the database container's network so Postgres is on localhost:5432.
+    network_mode: service:db
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: soc
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - devdb:/var/lib/postgresql/data
+volumes:
+  devdb:

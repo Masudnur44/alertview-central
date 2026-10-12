@@ -1,0 +1,120 @@
+# FINPAY SOC — self-hosted stack.
+#   cp .env.example .env   (or ./scripts/setup.sh)   then:   docker compose up -d --build
+name: finpay-soc
+
+x-app: &app
+  build: .
+  image: finpay-soc:latest
+  restart: unless-stopped
+  # Only what the app needs: it connects as the restricted soc_app role and never
+  # sees the database owner password.
+  environment:
+    DATABASE_URL: postgres://soc_app:${SOC_APP_DB_PASSWORD}@db:5432/soc
+    TRUST_PROXY: "true"
+    APP_URL: ${APP_URL:?set APP_URL in .env}
+    APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
+    ORG_NAME: ${ORG_NAME:-}
+    BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+    ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+    ALLOW_SIGNUP: ${ALLOW_SIGNUP:-}
+    REQUIRE_MFA: ${REQUIRE_MFA:-}
+    SESSION_IDLE_HOURS: ${SESSION_IDLE_HOURS:-}
+    SESSION_MAX_DAYS: ${SESSION_MAX_DAYS:-}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    SMTP_HOST: ${SMTP_HOST:-}
+    SMTP_PORT: ${SMTP_PORT:-}
+    SMTP_SECURE: ${SMTP_SECURE:-}
+    SMTP_USER: ${SMTP_USER:-}
+    SMTP_PASS: ${SMTP_PASS:-}
+    SMTP_FROM: ${SMTP_FROM:-}
+    ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-}
+    CHECK_CONCURRENCY: ${CHECK_CONCURRENCY:-}
+    INGEST_RATE_PER_MINUTE: ${INGEST_RATE_PER_MINUTE:-}
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  networks: [internal]
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: soc
+      POSTGRES_USER: soc_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soc_owner -d soc"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  # Applies database migrations (and the demo data when SEED_DEMO=true), then exits.
+  migrate:
+    build: .
+    image: finpay-soc:latest
+    environment:
+      SEED_DEMO: ${SEED_DEMO:-false}
+      MIGRATION_DATABASE_URL: postgres://soc_owner:${POSTGRES_PASSWORD}@db:5432/soc
+      SOC_APP_DB_PASSWORD: ${SOC_APP_DB_PASSWORD:?set SOC_APP_DB_PASSWORD in .env}
+    command: >
+      sh -c "node_modules/.bin/tsx scripts/migrate.ts &&
+             if [ \"$${SEED_DEMO:-false}\" = \"true\" ]; then node_modules/.bin/tsx scripts/seed-demo.ts; fi"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks: [internal]
+
+  app:
+    <<: *app
+    expose: ["3000"]
+
+  worker:
+    <<: *app
+    command: ["node_modules/.bin/tsx", "src/worker/main.ts"]
+    healthcheck:
+      disable: true
+
+  # Automatic HTTPS (Let's Encrypt) in front of the app.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      SOC_DOMAIN: ${SOC_DOMAIN:?set SOC_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+    networks: [internal]
+
+  # Nightly compressed database dumps, kept for BACKUP_KEEP_DAYS (default 14).
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./deploy/backup.sh:/backup.sh:ro
+    entrypoint: ["sh", "/backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:

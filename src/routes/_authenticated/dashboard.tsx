@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { supabase } from "@/integrations/supabase/client";
+import { getOverview } from "@/lib/api/soc.functions";
 import { Panel, PageHeader, Stat, SeverityBadge, StatusPill, ago, SEVERITIES, sevText, type Severity } from "@/components/soc/ui";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -10,20 +10,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 function useOverview() {
-  return useQuery({
-    queryKey: ["overview"],
-    refetchInterval: 30000,
-    queryFn: async () => {
-      const [alerts, assets, incidents, vulns, events] = await Promise.all([
-        supabase.from("alerts").select("id,title,severity,status,detected_at,acknowledged_at,resolved_at,source").order("detected_at", { ascending: false }),
-        supabase.from("assets").select("id,name,status,exposure,is_new,tls_expires_at"),
-        supabase.from("incidents").select("id,ref,title,severity,status,opened_at").order("opened_at", { ascending: false }),
-        supabase.from("vulnerabilities").select("id,severity,status,exploited_in_wild"),
-        supabase.from("events").select("id,event_type,outcome,occurred_at").gte("occurred_at", new Date(Date.now() - 864e5).toISOString()),
-      ]);
-      return { alerts: alerts.data ?? [], assets: assets.data ?? [], incidents: incidents.data ?? [], vulns: vulns.data ?? [], events: events.data ?? [] };
-    },
-  });
+  return useQuery({ queryKey: ["overview"], refetchInterval: 30000, queryFn: () => getOverview() });
 }
 
 function Dashboard() {
@@ -34,24 +21,31 @@ function Dashboard() {
   const high = open.filter((a) => a.severity === "high").length;
   const offline = data.assets.filter((a) => a.status === "offline").length;
   const activeInc = data.incidents.filter((i) => i.status !== "closed" && i.status !== "resolved");
-  const openVulns = data.vulns.filter((v) => v.status !== "fixed");
+  const openVulns = data.vulns.filter((v) => v.status !== "fixed" && v.status !== "risk_accepted");
   const posture = crit > 0 ? { l: "ELEVATED", c: "text-sev-critical" } : high > 2 ? { l: "GUARDED", c: "text-sev-high" } : { l: "NORMAL", c: "text-ok" };
   const certs = data.assets.filter((a) => a.tls_expires_at && new Date(a.tls_expires_at).getTime() - Date.now() < 30 * 864e5);
   const ackd = data.alerts.filter((a) => a.acknowledged_at);
-  const mttr = ackd.length ? Math.round(ackd.reduce((s, a) => s + (new Date(a.acknowledged_at!).getTime() - new Date(a.detected_at).getTime()), 0) / ackd.length / 60000) : null;
+  const mtta = ackd.length ? Math.round(ackd.reduce((s, a) => s + (new Date(a.acknowledged_at!).getTime() - new Date(a.detected_at).getTime()), 0) / ackd.length / 60000) : null;
 
   const buckets = Array.from({ length: 24 }, (_, i) => {
     const h = new Date(Date.now() - (23 - i) * 36e5);
-    return { h: `${h.getHours()}:00`, events: 0, failures: 0 };
+    h.setMinutes(0, 0, 0);
+    const row = data.hourly.find((r) => new Date(r.h).getTime() === h.getTime());
+    return { h: `${h.getHours()}:00`, events: row?.events ?? 0, failures: row?.failures ?? 0 };
   });
-  data.events.forEach((e) => {
-    const idx = 23 - Math.floor((Date.now() - new Date(e.occurred_at).getTime()) / 36e5);
-    if (idx >= 0 && idx < 24) { const b = buckets[idx]; if (b) { b.events++; if (e.outcome === "failure") b.failures++; } }
-  });
+  const events24 = data.hourly.reduce((n, r) => n + Number(r.events), 0);
+  const failures24 = data.hourly.reduce((n, r) => n + Number(r.failures), 0);
+  const ti24 = data.hourly.reduce((n, r) => n + Number(r.ti), 0);
+  const workerAge = data.workerHeartbeat ? (Date.now() - new Date(data.workerHeartbeat).getTime()) / 60000 : null;
 
   return (
     <div>
       <PageHeader title="Security Overview" sub="Continuous visibility across FINPAYTECH" />
+      {(workerAge == null || workerAge > 10) && (
+        <div className="mb-4 rounded-lg border border-sev-high/40 bg-sev-high/10 p-3 text-sm text-sev-high">
+          The background worker {workerAge == null ? "has not reported yet" : `last reported ${Math.round(workerAge)} minutes ago`} — scheduled checks, discovery and alert notifications are not running. Check the <span className="data">worker</span> container.
+        </div>
+      )}
       <div className="mb-4 grid gap-4 md:grid-cols-[1.2fr_repeat(4,1fr)]">
         <div className="rounded-lg border bg-card p-4 glow">
           <p className="data text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Overall posture</p>
@@ -61,7 +55,7 @@ function Dashboard() {
         <Stat label="Critical alerts" value={crit} tone="text-sev-critical" />
         <Stat label="High alerts" value={high} tone="text-sev-high" />
         <Stat label="Assets offline" value={`${offline}/${data.assets.length}`} tone={offline ? "text-sev-high" : "text-ok"} />
-        <Stat label="Mean time to ack" value={mttr != null ? `${mttr}m` : "—"} hint="MTTA across acknowledged alerts" />
+        <Stat label="Mean time to ack" value={mtta != null ? `${mtta}m` : "—"} hint="MTTA across acknowledged alerts" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -94,7 +88,7 @@ function Dashboard() {
 
         <Panel title="Needs immediate attention" className="lg:col-span-2" action={<Link to="/alerts" className="text-xs text-primary">All alerts →</Link>}>
           <ul className="divide-y">
-            {open.sort((a, b) => SEVERITIES.indexOf(a.severity as Severity) - SEVERITIES.indexOf(b.severity as Severity)).slice(0, 6).map((a) => (
+            {[...open].sort((a, b) => SEVERITIES.indexOf(a.severity as Severity) - SEVERITIES.indexOf(b.severity as Severity)).slice(0, 6).map((a) => (
               <li key={a.id} className="flex items-center gap-3 py-2.5">
                 <SeverityBadge s={a.severity as Severity} />
                 <span className="flex-1 truncate text-sm">{a.title}</span>
@@ -124,6 +118,7 @@ function Dashboard() {
             <Row k="Internet-facing assets" v={data.assets.filter((a) => a.exposure === "external").length} />
             <Row k="Newly discovered" v={data.assets.filter((a) => a.is_new).length} warn />
             <Row k="Certs expiring <30d" v={certs.length} warn />
+            <Row k="Event sources live (1h)" v={Number(data.sources?.live ?? 0)} />
           </dl>
         </Panel>
         <Panel title="Vulnerability status">
@@ -131,13 +126,15 @@ function Dashboard() {
             <Row k="Open findings" v={openVulns.length} />
             <Row k="Critical" v={openVulns.filter((v) => v.severity === "critical").length} warn />
             <Row k="Known exploited" v={openVulns.filter((v) => v.exploited_in_wild).length} warn />
+            <Row k="Past SLA due date" v={openVulns.filter((v) => v.due_at && new Date(v.due_at).getTime() < Date.now()).length} warn />
           </dl>
         </Panel>
         <Panel title="While you were away · 24h">
           <dl className="data space-y-2 text-sm">
             <Row k="New alerts" v={data.alerts.filter((a) => Date.now() - new Date(a.detected_at).getTime() < 864e5).length} />
-            <Row k="Events ingested" v={data.events.length} />
-            <Row k="Failed logins" v={data.events.filter((e) => e.outcome === "failure").length} warn />
+            <Row k="Events ingested" v={events24} />
+            <Row k="Failed logins" v={failures24} warn />
+            <Row k="Threat-intel matches" v={ti24} warn />
           </dl>
         </Panel>
       </div>

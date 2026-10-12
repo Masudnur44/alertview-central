@@ -30,3 +30,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Self-hosted
+.env
+.env.*
+!.env.example
+backups/
+src/routeTree.gen.ts
+
+# Python
+__pycache__/
+*.pyc
