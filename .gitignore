@@ -41,3 +41,4 @@ src/routeTree.gen.ts
 # Python
 __pycache__/
 *.pyc
+.dev-secret
