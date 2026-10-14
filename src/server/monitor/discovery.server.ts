@@ -53,8 +53,8 @@ export async function runDiscovery(): Promise<{ domains: number; found: number; 
       const inserted = await asSystem(async (tx) => {
         const [a] = await tx`
           insert into assets (name, asset_type, address, exposure, status, is_new, discovered_via, criticality, monitored, notes)
-          values (${host}, 'website', ${`https://${host}`}, 'external', 'unknown', true, 'ct_log', 'medium', true,
-                  ${`Discovered in certificate-transparency logs for ${d.domain}. Confirm the owner and criticality.`})
+          values (${host}, 'website', ${`https://${host}`}, 'external', 'unknown', true, 'ct_log', 'medium', false,
+                  ${`Discovered in certificate-transparency logs for ${d.domain}. Confirm the owner and criticality, then approve its monitoring scope.`})
           on conflict (lower(name)) do nothing returning id`;
         if (!a) return false;
         const rules = await loadRules(tx);

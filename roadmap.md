@@ -7,6 +7,7 @@
 - [x] Append-only, hash-chained audit trail written by database triggers; integrity check and export
 - [x] External surface: live TLS certificate inspection, uptime/latency, security headers, risky exposed ports, DNS NS/MX change detection, SSRF-safe probing, auto-resolve on recovery
 - [x] Subdomain discovery from certificate-transparency logs
+- [x] Monitoring-scope approval gate: assets are never probed until an authorized user approves them; duplicate-address protection; job locking across processes
 - [x] Detections: brute force, password spraying, success-after-brute-force, off-hours privileged login, suspicious process chains / encoded PowerShell, LOLBin downloads, new admin accounts, log cleared, new services, threat-intel IP match, silent sources, Wazuh alerts — all tunable
 - [x] Threat intel: CISA KEV, Feodo Tracker, Spamhaus DROP, Tor exits
 - [x] Notifications: email, Slack, Teams, Telegram, signed webhooks, with retries

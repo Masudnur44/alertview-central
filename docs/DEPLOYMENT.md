@@ -72,7 +72,7 @@ docker compose run --rm migrate node_modules/.bin/tsx scripts/create-admin.ts --
    ```
    and set `SEED_DEMO=false` in `.env`.
 2. **Team:** colleagues click *Request access* with their company email; approve them under **Settings → Team & access** and give each the least role they need.
-3. **Assets:** add websites/APIs as `https://…` URLs, services as `host:port`, servers by name. Mark internet-facing ones as *external* — only those are probed.
+3. **Assets:** add websites/APIs as `https://…` URLs, services as `host:port`, servers by name. Mark internet-facing ones as *external*, then open each one and click **Approve monitoring scope** and switch on monitoring — nothing is probed until then. Only approve systems FINPAYTECH owns or is authorized to test.
 4. **Discovery:** **External Surface → Subdomain discovery → Add domain** `finpaytech.com`. New hostnames found in certificate-transparency logs appear as *NEW* assets with an alert.
 5. **Event sources & agents:** **Settings → Event sources**, create one source per group (Linux servers, Windows laptops, Wazuh). Copy the key (shown once) and follow [agents/README.md](../agents/README.md).
 6. **Notifications:** **Settings → Notifications** — add Email/Slack/Teams/Telegram/webhook channels and press **Send test**. Without a channel, nobody is told about critical alerts outside the console.

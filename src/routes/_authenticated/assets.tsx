@@ -65,6 +65,7 @@ function Assets() {
                   {a.name}
                   {a.is_new && <span className="data ml-1 rounded bg-primary/15 px-1 text-[10px] text-primary">NEW</span>}
                   {a.tags.includes("demo") && <span className="data ml-1 rounded bg-muted px-1 text-[10px] text-muted-foreground">DEMO</span>}
+                  {a.exposure === "external" && !a.monitoring_approved && <span className="data ml-1 rounded bg-sev-medium/15 px-1 text-[10px] text-sev-medium" title="Not scanned until its monitoring scope is approved">UNAPPROVED</span>}
                 </Td>
                 <Td className="data text-xs capitalize text-muted-foreground">{a.asset_type}</Td>
                 <Td className="data max-w-56 truncate text-xs">{a.address}</Td>

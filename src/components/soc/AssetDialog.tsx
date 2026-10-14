@@ -81,9 +81,14 @@ export function AssetDialog({ open, onOpenChange, asset }: { open: boolean; onOp
           </div>
           <Input placeholder="Tags (comma separated): pci, payments" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} />
           <Textarea placeholder="Notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={3} />
-          <label className="flex items-center justify-between rounded border p-3 text-sm">
-            <span>Monitor this asset{f.exposure === "external" ? " (uptime, TLS, headers, ports, DNS)" : ""}</span>
-            <Switch checked={f.monitored} onCheckedChange={(v) => setF({ ...f, monitored: v })} />
+          <label className="flex items-center justify-between gap-3 rounded border p-3 text-sm">
+            <span>
+              Monitor this asset{f.exposure === "external" ? " (uptime, TLS, headers, ports, DNS)" : ""}
+              {!asset?.monitoring_approved && (
+                <span className="mt-1 block text-xs text-muted-foreground">Save the asset, then use “Approve monitoring scope” on its detail panel before turning this on.</span>
+              )}
+            </span>
+            <Switch checked={f.monitored} disabled={!asset?.monitoring_approved} onCheckedChange={(v) => setF({ ...f, monitored: v })} />
           </label>
           <Button className="w-full" onClick={() => save.mutate()} disabled={!f.name || save.isPending}>Save</Button>
         </div>

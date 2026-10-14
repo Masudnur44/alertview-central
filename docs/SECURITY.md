@@ -41,7 +41,7 @@ A SOC is a high-value target: it knows where everything is and what is vulnerabl
 
 ## External probing (SSRF protection)
 
-The monitor resolves every hostname itself, refuses private, loopback, link-local, CGNAT, multicast, documentation and NAT64 ranges (v4 and v6), and then connects to that exact address — so DNS rebinding cannot redirect it to the internal network or a cloud metadata endpoint. Every redirect hop is re-validated. Only Security Admins, Managers and System Admins can add assets. Outbound webhooks must be HTTPS and pass the same check.
+Nothing is probed without explicit authorization: every asset starts with monitoring off, and a Security Admin, Manager or System Admin must **approve its monitoring scope** (recorded with who and when, and enforced by a database trigger) before checks can run. Revoking approval switches monitoring off. The monitor resolves every hostname itself, refuses private, loopback, link-local, CGNAT, multicast, documentation and NAT64 ranges (v4 and v6), and then connects to that exact address — so DNS rebinding cannot redirect it to the internal network or a cloud metadata endpoint. Every redirect hop is re-validated. Only Security Admins, Managers and System Admins can add assets. Outbound webhooks must be HTTPS and pass the same check.
 
 ## Secrets at rest
 
