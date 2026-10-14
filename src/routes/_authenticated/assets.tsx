@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AssetDialog, ASSET_TYPES } from "@/components/soc/AssetDialog";
-import { deleteAsset, getAsset, listAssets } from "@/lib/api/soc.functions";
+import { deleteAsset, getAsset, listAssets, setAssetMonitoringApproval } from "@/lib/api/soc.functions";
 import { useCan } from "@/lib/session";
 import { downloadCsv } from "@/lib/risk";
 import type { Asset } from "@/lib/types";
@@ -99,6 +99,10 @@ function AssetSheet({ id, onClose, onEdit }: { id: string | null; onClose: () =>
     mutationFn: () => deleteAsset({ data: { id: id! } }),
     onSuccess: () => { toast.success("Asset deleted"); onClose(); qc.invalidateQueries({ queryKey: ["assets"] }); },
   });
+  const approval = useMutation({
+    mutationFn: (approved: boolean) => setAssetMonitoringApproval({ data: { id: id!, approved } }),
+    onSuccess: (result) => { toast.success(result.approved ? "Monitoring scope approved" : "Monitoring scope revoked"); qc.invalidateQueries({ queryKey: ["assets"] }); qc.invalidateQueries({ queryKey: ["asset", id] }); },
+  });
   const a = data?.asset;
   return (
     <Sheet open={!!id} onOpenChange={(v) => !v && onClose()}>
@@ -126,6 +130,7 @@ function AssetSheet({ id, onClose, onEdit }: { id: string | null; onClose: () =>
             </dl>
             <div className="mt-4 flex gap-2">
               {canManage && <Button size="sm" variant="outline" onClick={() => onEdit(a)}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>}
+              {canManage && <Button size="sm" variant="outline" onClick={() => approval.mutate(!a.monitoring_approved)} disabled={approval.isPending}>{a.monitoring_approved ? "Revoke monitoring approval" : "Approve monitoring scope"}</Button>}
               {canDelete && <Button size="sm" variant="ghost" className="text-sev-critical" onClick={() => { if (confirm(`Delete ${a.name}? Its check history and vulnerabilities are deleted too.`)) del.mutate(); }}><Trash2 className="mr-1 h-3.5 w-3.5" />Delete</Button>}
             </div>
             <Panel title="Open alerts" className="mt-5">

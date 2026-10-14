@@ -106,5 +106,8 @@
   "version": "1.0.0",
   "engines": {
     "node": ">=22"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }

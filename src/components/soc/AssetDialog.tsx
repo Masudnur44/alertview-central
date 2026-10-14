@@ -32,7 +32,7 @@ function toForm(a?: Asset | null): Form {
     ? { id: a.id, name: a.name, asset_type: a.asset_type as Form["asset_type"], address: a.address ?? "", owner: a.owner ?? "", exposure: a.exposure,
         criticality: (a.criticality === "info" ? "low" : a.criticality) as Form["criticality"], environment: a.environment, monitored: a.monitored,
         tags: a.tags.join(", "), notes: a.notes ?? "", is_new: a.is_new }
-    : { name: "", asset_type: "website", address: "", owner: "", exposure: "external", criticality: "medium", environment: "production", monitored: true, tags: "", notes: "" };
+    : { name: "", asset_type: "website", address: "", owner: "", exposure: "external", criticality: "low", environment: "unknown", monitored: false, tags: "finpay, web-application, pending-verification", notes: "" };
 }
 
 export function AssetDialog({ open, onOpenChange, asset }: { open: boolean; onOpenChange: (v: boolean) => void; asset?: Asset | null }) {

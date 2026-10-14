@@ -12,6 +12,7 @@ export type Asset = {
   status: string;
   exposure: "internal" | "external";
   monitored: boolean;
+  monitoring_approved: boolean;
   is_new: boolean;
   discovered_via: string | null;
   tags: string[];

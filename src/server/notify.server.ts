@@ -128,6 +128,10 @@ export async function deliver(config: ChannelConfig, a: AlertMessage): Promise<v
 
 const BACKOFF_MIN = [1, 5, 15, 60, 180];
 
+export function notificationRetry(attempt: number): { giveUp: boolean; delayMinutes: number } {
+  return { giveUp: attempt > BACKOFF_MIN.length, delayMinutes: BACKOFF_MIN[Math.min(Math.max(attempt - 1, 0), BACKOFF_MIN.length - 1)]! };
+}
+
 export async function deliverPending(limit = 50): Promise<{ sent: number; failed: number }> {
   const jobs = await asSystem((tx) => tx`
     select n.id, n.attempts, c.id as channel_id, c.config,
@@ -154,11 +158,11 @@ export async function deliverPending(limit = 50): Promise<{ sent: number; failed
       failed++;
       const msg = (e as Error).message.slice(0, 500);
       const attempt = Number(j.attempts) + 1;
-      const giveUp = attempt > BACKOFF_MIN.length;
+      const retry = notificationRetry(attempt);
       await asSystem(async (tx) => {
         await tx`update notifications set attempts = ${attempt}, last_error = ${msg},
-                   status = ${giveUp ? "failed" : "pending"},
-                   next_attempt_at = now() + make_interval(mins => ${BACKOFF_MIN[Math.min(attempt - 1, BACKOFF_MIN.length - 1)]!})
+                   status = ${retry.giveUp ? "failed" : "pending"},
+                   next_attempt_at = now() + make_interval(mins => ${retry.delayMinutes})
                  where id = ${j.id}`;
         await tx`update notification_channels set last_error = ${msg} where id = ${j.channel_id}`;
       });

@@ -1,9 +1,10 @@
 // Background jobs, shared by the worker (on a schedule) and the app ("run now" buttons).
-import { asSystem } from "./db.server";
+import { asSystem, db } from "./db.server";
 import { runChecks } from "./monitor/checks.server";
 import { runDiscovery } from "./monitor/discovery.server";
 import { refreshAllFeeds } from "./intel.server";
 import { checkSilentSources } from "./detect.server";
+import { jobResultOk } from "./monitor/policy";
 
 export type JobName = "checks" | "discovery" | "intel" | "silent_sources" | "retention";
 
@@ -34,15 +35,29 @@ const RUNNERS: Record<JobName, () => Promise<unknown>> = {
 export async function runJob(name: JobName): Promise<unknown> {
   if (running.has(name)) return { skipped: "already running" };
   running.add(name);
-  const [run] = await asSystem((tx) => tx`insert into job_runs (job) values (${name}) returning id`);
+  let connection: Awaited<ReturnType<typeof db>["reserve"]> | undefined;
+  let locked = false;
+  let runId: number | undefined;
   try {
+    connection = await db().reserve();
+    const [lock] = await connection`select pg_try_advisory_lock(hashtextextended(${`finpay-soc:${name}`}, 0)) as locked`;
+    if (!lock?.locked) return { skipped: "already running" };
+    locked = true;
+    const [run] = await asSystem((tx) => tx`insert into job_runs (job) values (${name}) returning id`);
+    runId = run!.id as number;
     const detail = await RUNNERS[name]();
-    await asSystem((tx) => tx`update job_runs set finished_at = now(), ok = true, detail = ${tx.json((detail ?? {}) as never)} where id = ${run!.id}`);
+    await asSystem((tx) => tx`update job_runs set finished_at = now(), ok = ${jobResultOk(detail)}, detail = ${tx.json((detail ?? {}) as never)} where id = ${runId}`);
     return detail;
   } catch (e) {
-    await asSystem((tx) => tx`update job_runs set finished_at = now(), ok = false, detail = ${tx.json({ error: (e as Error).message })} where id = ${run!.id}`);
+    if (runId !== undefined) {
+      await asSystem((tx) => tx`update job_runs set finished_at = now(), ok = false, detail = ${tx.json({ error: (e as Error).message })} where id = ${runId}`);
+    }
     throw e;
   } finally {
+    if (connection) {
+      if (locked) await connection`select pg_advisory_unlock(hashtextextended(${`finpay-soc:${name}`}, 0))`;
+      connection.release();
+    }
     running.delete(name);
   }
 }

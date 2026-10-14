@@ -4,6 +4,7 @@ import { asSystem, type Tx } from "../db.server";
 import { env } from "../env.server";
 import { autoResolve, loadRules, raiseAlert, type RaiseInput, type Rule } from "../alerts.server";
 import { dnsSnapshot, httpProbe, missingSecurityHeaders, parseTarget, portProbe, tlsProbe, type CertInfo, type DnsSnapshot } from "./net.server";
+import { isMonitoringEligible, type CheckFailure, type CheckRunSummary } from "./policy";
 
 const TLS_PORTS = new Set([443, 465, 636, 853, 990, 993, 995, 5986, 8443]);
 
@@ -16,6 +17,8 @@ type Asset = {
   status: string;
   dns: DnsSnapshot | null;
   open_ports: number[];
+  monitoring_approved: boolean;
+  monitored: boolean;
 };
 
 type Outcome = {
@@ -35,26 +38,30 @@ async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>)
   }));
 }
 
-export async function runChecks(opts: { assetIds?: string[] } = {}): Promise<{ checked: number; alerts: number; failed: number }> {
+export async function runChecks(opts: { assetIds?: string[] } = {}): Promise<CheckRunSummary> {
   const e = env();
   const { assets, rules } = await asSystem(async (tx) => ({
     assets: await tx<Asset[]>`
-      select id, name, asset_type, address, exposure, status, dns, open_ports from assets
-      where monitored and exposure = 'external' and status <> 'retired'
+      select id, name, asset_type, address, exposure, status, dns, open_ports, monitoring_approved, monitored from assets
+      where monitoring_approved and monitored and exposure = 'external' and status <> 'retired'
         ${opts.assetIds?.length ? tx`and id = any(${opts.assetIds}::uuid[])` : tx``}`,
     rules: await loadRules(tx),
   }));
   let alerts = 0, failed = 0;
+  const failures: CheckFailure[] = [];
   await pool(assets, e.CHECK_CONCURRENCY, async (asset) => {
     try {
+      if (!isMonitoringEligible(asset)) return;
       const outcome = await probe(asset, rules, e.ALLOW_PRIVATE_TARGETS);
       alerts += await asSystem((tx) => record(tx, asset, outcome, rules));
     } catch (err) {
       failed++;
-      console.error(`check failed for ${asset.name}`, err);
+      const error = err instanceof Error ? err.message : String(err);
+      failures.push({ assetId: asset.id, name: asset.name, error });
+      console.error(`check failed for ${asset.name}`, error);
     }
   });
-  return { checked: assets.length, alerts, failed };
+  return { checked: assets.length, alerts, failed, failures };
 }
 
 async function probe(asset: Asset, rules: Map<string, Rule>, allowPrivate: boolean): Promise<Outcome> {

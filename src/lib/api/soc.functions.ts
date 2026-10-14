@@ -51,16 +51,29 @@ const AssetInput = z.object({
   name: z.string().trim().min(1).max(255),
   asset_type: z.enum(["domain", "website", "api", "service", "ip", "server", "endpoint", "network", "cloud", "other"]),
   address: z.string().trim().max(500).optional().nullable(),
-  environment: z.string().trim().max(40).default("production"),
+  environment: z.string().trim().max(40).default("unknown"),
   owner: z.string().trim().max(120).optional().nullable(),
-  criticality: severity,
+  criticality: severity.default("low"),
   exposure: z.enum(["internal", "external"]),
-  monitored: z.boolean().default(true),
+  monitored: z.boolean().default(false),
   tags: z.array(z.string().trim().max(40)).max(20).default([]),
   notes: z.string().max(4000).optional().nullable(),
   status: z.enum(["online", "offline", "degraded", "unknown", "retired"]).optional(),
   is_new: z.boolean().optional(),
 });
+
+function canonicalAddress(address: string): string {
+  const value = address.trim();
+  try {
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return value.toLowerCase().replace(/\.$/, "");
+    const port = parsed.port && !((parsed.protocol === 'http:' && parsed.port === '80') || (parsed.protocol === 'https:' && parsed.port === '443'))
+      ? `:${parsed.port}` : "";
+    return `${parsed.protocol.toLowerCase()}//${parsed.hostname.toLowerCase().replace(/\.$/, "")}${port}${parsed.pathname || "/"}${parsed.search}`;
+  } catch {
+    return value.toLowerCase().replace(/\.$/, "");
+  }
+}
 
 export const saveAsset = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => AssetInput.parse(d))
@@ -77,6 +90,10 @@ export const saveAsset = createServerFn({ method: "POST" })
     }
     return run(async (tx) => {
       if (data.id) {
+        if (data.monitored) {
+          const [approval] = await tx`select monitoring_approved from assets where id = ${data.id}`;
+          if (!approval?.monitoring_approved) throw new Error("Approve the monitoring scope before enabling monitoring.");
+        }
         const [row] = await tx`
           update assets set name = ${data.name}, asset_type = ${data.asset_type}, address = ${data.address ?? null}, environment = ${data.environment},
             owner = ${data.owner ?? null}, criticality = ${data.criticality}, exposure = ${data.exposure}, monitored = ${data.monitored},
@@ -85,6 +102,14 @@ export const saveAsset = createServerFn({ method: "POST" })
           where id = ${data.id} returning id`;
         if (!row) throw new Error("Asset not found or you cannot edit it.");
         return { id: row.id as string };
+      }
+      if (data.monitored) throw new Error("Approve the monitoring scope before enabling monitoring.");
+      if (data.address) {
+        const requestedAddress = canonicalAddress(data.address);
+        const existing = await tx<{ name: string; address: string }[]>`
+          select name, address from assets where address is not null`;
+        const duplicate = existing.find((asset) => canonicalAddress(asset.address) === requestedAddress);
+        if (duplicate) throw new Error(`An asset with this address already exists: ${duplicate.name}`);
       }
       const [row] = await tx`
         insert into assets (name, asset_type, address, environment, owner, criticality, exposure, monitored, tags, notes, discovered_via, status)
@@ -95,6 +120,25 @@ export const saveAsset = createServerFn({ method: "POST" })
     }).catch((e: Error) => {
       if (/assets_name_key/.test(e.message)) throw new Error("An asset with this name already exists.");
       throw e;
+    });
+  });
+
+export const setAssetMonitoringApproval = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: uuid, approved: z.boolean() }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run, s } = await guard("assets.manage");
+    return run(async (tx) => {
+      const [asset] = await tx<{ id: string }[]>`select id from assets where id = ${data.id}`;
+      if (!asset) throw new Error("Asset not found or you cannot manage it.");
+      await tx`
+        update assets
+        set monitoring_approved = ${data.approved},
+            monitoring_approved_by = ${data.approved ? s.user.id : null},
+            monitoring_approved_at = case when ${data.approved} then now() else null end,
+            monitored = case when ${data.approved} then monitored else false end
+        where id = ${data.id}`;
+      return { id: asset.id, approved: data.approved };
     });
   });
 
