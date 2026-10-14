@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { saveAsset } from "@/lib/api/soc.functions";
+import { listTeams, saveAsset } from "@/lib/api/soc.functions";
 import type { Asset } from "@/lib/types";
 
 export const ASSET_TYPES = ["website", "api", "domain", "service", "ip", "server", "endpoint", "network", "cloud", "other"] as const;
@@ -22,6 +22,7 @@ type Form = {
   criticality: "critical" | "high" | "medium" | "low";
   environment: string;
   monitored: boolean;
+  team_id: string;
   tags: string;
   notes: string;
   is_new?: boolean;
@@ -30,9 +31,9 @@ type Form = {
 function toForm(a?: Asset | null): Form {
   return a
     ? { id: a.id, name: a.name, asset_type: a.asset_type as Form["asset_type"], address: a.address ?? "", owner: a.owner ?? "", exposure: a.exposure,
-        criticality: (a.criticality === "info" ? "low" : a.criticality) as Form["criticality"], environment: a.environment, monitored: a.monitored,
+        criticality: (a.criticality === "info" ? "low" : a.criticality) as Form["criticality"], environment: a.environment, monitored: a.monitored, team_id: a.team_id ?? "",
         tags: a.tags.join(", "), notes: a.notes ?? "", is_new: a.is_new }
-    : { name: "", asset_type: "website", address: "", owner: "", exposure: "external", criticality: "low", environment: "unknown", monitored: false, tags: "finpay, web-application, pending-verification", notes: "" };
+    : { name: "", asset_type: "website", address: "", owner: "", exposure: "external", criticality: "low", environment: "production", monitored: true, team_id: "", tags: "", notes: "" };
 }
 
 export function AssetDialog({ open, onOpenChange, asset }: { open: boolean; onOpenChange: (v: boolean) => void; asset?: Asset | null }) {
@@ -43,18 +44,20 @@ export function AssetDialog({ open, onOpenChange, asset }: { open: boolean; onOp
     setLastId(asset?.id);
     setF(toForm(asset));
   }
+  const { data: teams = [] } = useQuery({ queryKey: ["teams"], queryFn: () => listTeams(), enabled: open });
   const save = useMutation({
     mutationFn: () => saveAsset({ data: {
-      ...f, address: f.address || null, owner: f.owner || null, notes: f.notes || null,
+      ...f, team_id: f.team_id || null, address: f.address || null, owner: f.owner || null, notes: f.notes || null,
       tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean),
       is_new: f.id ? false : undefined,
     } }),
     onSuccess: () => {
-      toast.success(f.id ? "Asset updated" : "Asset added — it will be checked on the next run");
+      toast.success(f.id ? "Asset updated" : f.monitored ? "Asset added — monitoring starts on the next run" : "Asset added (not monitored)");
       onOpenChange(false);
       qc.invalidateQueries({ queryKey: ["assets"] });
       qc.invalidateQueries({ queryKey: ["surface"] });
     },
+    onError: (e: Error) => toast.error(e.message),
   });
   const web = ["website", "api"].includes(f.asset_type);
   return (
@@ -65,7 +68,17 @@ export function AssetDialog({ open, onOpenChange, asset }: { open: boolean; onOp
           <Input placeholder="Name (e.g. pay.finpaytech.com)" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
           <Input placeholder={web ? "URL, e.g. https://pay.finpaytech.com" : "Address: host, host:port or IP"} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
-            <Input placeholder="Owner / team" value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} />
+            <label className="text-xs text-muted-foreground">Developer team (receives its issues)
+              <select className={selectCls} value={f.team_id} onChange={(e) => setF({ ...f, team_id: e.target.value })}>
+                <option value="">— none —</option>
+                {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+            <label className="text-xs text-muted-foreground">Owner (person)
+              <Input placeholder="e.g. J. Otieno" value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} />
+            </label>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
             <Input placeholder="Environment" value={f.environment} onChange={(e) => setF({ ...f, environment: e.target.value })} />
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -84,11 +97,9 @@ export function AssetDialog({ open, onOpenChange, asset }: { open: boolean; onOp
           <label className="flex items-center justify-between gap-3 rounded border p-3 text-sm">
             <span>
               Monitor this asset{f.exposure === "external" ? " (uptime, TLS, headers, ports, DNS)" : ""}
-              {!asset?.monitoring_approved && (
-                <span className="mt-1 block text-xs text-muted-foreground">Save the asset, then use “Approve monitoring scope” on its detail panel before turning this on.</span>
-              )}
+              <span className="mt-1 block text-xs text-muted-foreground">Only add systems FINPAY owns or is authorised to test — adding it here is your approval to scan it.</span>
             </span>
-            <Switch checked={f.monitored} disabled={!asset?.monitoring_approved} onCheckedChange={(v) => setF({ ...f, monitored: v })} />
+            <Switch checked={f.monitored} onCheckedChange={(v) => setF({ ...f, monitored: v })} />
           </label>
           <Button className="w-full" onClick={() => save.mutate()} disabled={!f.name || save.isPending}>Save</Button>
         </div>

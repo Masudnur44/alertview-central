@@ -1,6 +1,7 @@
 // Event intake + detection. Used by /api/public/ingest, the Wazuh endpoint and tests.
 import type { Tx } from "./db.server";
 import { loadRules, raiseAlert, type Rule } from "./alerts.server";
+import { verifyIssuesForCondition } from "./issues.server";
 import { matchSingleEvent, type IncomingEvent } from "./detect-rules";
 import net from "node:net";
 
@@ -166,6 +167,8 @@ export async function checkSilentSources(tx: Tx): Promise<number> {
   await tx`
     update alerts a set status = 'resolved', details = coalesce(a.details, '{}'::jsonb) || '{"auto_resolved":"source reporting again"}'
     from event_sources s
-    where a.dedupe_key = 'silent:' || s.id::text and a.status in ('new','acknowledged') and s.last_event_at > now() - make_interval(hours => ${hours})`;
+    where a.dedupe_key = 'silent:' || s.id::text and a.status in ('new','acknowledged','investigating') and s.last_event_at > now() - make_interval(hours => ${hours})`;
+  const live = await tx`select id from event_sources where last_event_at > now() - make_interval(hours => ${hours})`;
+  for (const s of live) await verifyIssuesForCondition(tx, `silent:${s.id}`);
   return opened;
 }

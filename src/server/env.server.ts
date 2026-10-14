@@ -36,6 +36,14 @@ const Schema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
 
+  // Messages to developer teams (optional)
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_TEMPLATE: z.string().optional(),
+  WHATSAPP_TEMPLATE_LANG: z.string().default("en"),
+  ISSUE_LINK_DAYS: z.coerce.number().min(1).max(90).default(14),
+
   // Monitoring
   ALLOW_PRIVATE_TARGETS: bool(false),
   CHECK_CONCURRENCY: z.coerce.number().min(1).max(50).default(8),
@@ -64,3 +72,5 @@ export const isProd = () => env().NODE_ENV === "production";
 export const secureCookies = () => env().APP_URL.startsWith("https://");
 export const smtpConfigured = () => Boolean(env().SMTP_HOST && env().SMTP_FROM);
 export const googleConfigured = () => Boolean(env().GOOGLE_CLIENT_ID && env().GOOGLE_CLIENT_SECRET);
+export const telegramConfigured = () => Boolean(env().TELEGRAM_BOT_TOKEN);
+export const whatsappConfigured = () => Boolean(env().WHATSAPP_TOKEN && env().WHATSAPP_PHONE_NUMBER_ID);

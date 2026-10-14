@@ -7,12 +7,15 @@ import { PageHeader, Panel, SeverityBadge, StatusPill, Table, Th, Td, ago, SEVER
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { escalateAlerts, getAlertContext, listAlerts, listTeam, updateAlerts } from "@/lib/api/soc.functions";
+import { escalateAlerts, getAlertBrief, getAlertContext, listAlerts, listTeam, updateAlerts } from "@/lib/api/soc.functions";
+import { BriefView } from "@/components/soc/BriefView";
+import { SendToDevDialog } from "@/components/soc/SendToDevDialog";
+import { Send } from "lucide-react";
 import { useCan, useMe } from "@/lib/session";
 import type { Alert } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/alerts")({
-  validateSearch: z.object({ focus: z.string().uuid().optional() }),
+  validateSearch: z.object({ focus: z.string().uuid().optional(), q: z.string().max(200).optional() }),
   head: () => ({ meta: [{ title: "Alerts — FINPAY SOC" }, { name: "description", content: "Security alert queue." }] }),
   component: Alerts,
 });
@@ -22,12 +25,14 @@ const STATUSES = ["open", "new", "acknowledged", "investigating", "escalated", "
 function Alerts() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { focus } = Route.useSearch();
+  const { focus, q: initialQ } = Route.useSearch();
   const canTriage = useCan("alerts.triage");
   const canEscalate = useCan("incidents.manage");
   const [sev, setSev] = useState("all");
   const [st, setSt] = useState(focus ? "all" : "open");
-  const [q, setQ] = useState("");
+  const canSend = useCan("issues.send");
+  const [q, setQ] = useState(initialQ ?? "");
+  const [sendFor, setSendFor] = useState<Alert | null>(null);
   const [sel, setSel] = useState<string | null>(focus ?? null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const filters = { status: st, severity: sev, q };
@@ -93,24 +98,26 @@ function Alerts() {
         </Table>
         <aside className="h-fit rounded-lg border bg-card p-5 xl:sticky xl:top-4">
           {!cur ? <p className="text-sm text-muted-foreground">Select an alert to triage.</p> : (
-            <AlertDetail a={cur} canTriage={canTriage} canEscalate={canEscalate}
+            <AlertDetail a={cur} canTriage={canTriage} canEscalate={canEscalate} canSend={canSend} onSend={() => setSendFor(cur)}
               onUpdate={(v) => update.mutate({ ids: [cur.id], ...v })}
               onEscalate={() => escalate.mutate([cur.id])}
               onOpenIncident={() => navigate({ to: "/incidents/$id", params: { id: cur.incident_id! } })} />
           )}
         </aside>
       </div>
+      <SendToDevDialog alertId={sendFor?.id ?? null} title={sendFor?.title} open={!!sendFor} onOpenChange={(v) => !v && setSendFor(null)} />
     </div>
   );
 }
 
-function AlertDetail({ a, canTriage, canEscalate, onUpdate, onEscalate, onOpenIncident }: {
-  a: Alert; canTriage: boolean; canEscalate: boolean;
+function AlertDetail({ a, canTriage, canEscalate, canSend, onSend, onUpdate, onEscalate, onOpenIncident }: {
+  a: Alert; canTriage: boolean; canEscalate: boolean; canSend: boolean; onSend: () => void;
   onUpdate: (v: { status?: "acknowledged" | "investigating" | "resolved" | "false_positive" | "new"; assignee?: string | null }) => void;
   onEscalate: () => void; onOpenIncident: () => void;
 }) {
   const me = useMe();
   const { data: ctx } = useQuery({ queryKey: ["alert-ctx", a.id], queryFn: () => getAlertContext({ data: { id: a.id } }) });
+  const { data: diag } = useQuery({ queryKey: ["brief", a.id], queryFn: () => getAlertBrief({ data: { id: a.id } }) });
   const { data: team = [] } = useQuery({ queryKey: ["team"], queryFn: () => listTeam(), staleTime: 300_000, enabled: canTriage });
   const closed = ["resolved", "false_positive", "closed"].includes(a.status);
   const details = (a.details ?? {}) as Record<string, unknown>;
@@ -152,6 +159,15 @@ function AlertDetail({ a, canTriage, canEscalate, onUpdate, onEscalate, onOpenIn
           </div>
         </>
       )}
+      {canSend && !closed && (
+        <div className="mt-3">
+          <Button size="sm" className="w-full" onClick={onSend}><Send className="mr-2 h-3.5 w-3.5" />Send to developer{diag?.suggestedTeam ? ` · ${diag.suggestedTeam.name}` : ""}</Button>
+          {diag?.issues?.length ? <p className="data mt-1 text-[11px] text-primary">Already with devs: {diag.issues.map((i) => `${i.ref} (${i.status})`).join(", ")}</p> : null}
+        </div>
+      )}
+      <Panel title="Diagnosis" className="mt-4">
+        {diag ? <BriefView brief={diag.brief} /> : <p className="text-xs text-muted-foreground">Analysing…</p>}
+      </Panel>
       {ctx && ctx.intel.length > 0 && (
         <Panel title="Threat intelligence" className="mt-5">
           <ul className="data space-y-1 text-xs">{ctx.intel.map((i, n) => <li key={n}><span className="text-sev-high">{String(i.source)}</span> {String(i.description ?? "")}</li>)}</ul>

@@ -13,6 +13,7 @@ export type Asset = {
   exposure: "internal" | "external";
   monitored: boolean;
   monitoring_approved: boolean;
+  team_id: string | null;
   is_new: boolean;
   discovered_via: string | null;
   tags: string[];
@@ -121,4 +122,28 @@ export type TeamMember = {
   last_login_at: string | null;
   created_at: string;
   approved_at: string | null;
+  team_id: string | null;
+};
+
+/** Diagnosis brief handed to developers. */
+export type Brief = {
+  summary: string;
+  meaning: string;
+  impact: string;
+  where: { label: string; value: string }[];
+  when: { label: string; value: string }[];
+  evidence: { label: string; value: string }[];
+  checks: { at: string; ok: boolean; detail: string; ms: number | null }[];
+  events: { at: string; type: string; user: string | null; ip: string | null; outcome: string | null; message: string | null }[];
+  causes: string[];
+  whereToLook: string[];
+  fix: string[];
+  verify: string;
+  technique: string | null;
+};
+
+export type DevIssue = {
+  id: string; ref: string; title: string; severity: string; status: string; due_at: string | null; created_at: string;
+  team_name: string | null; asset_name: string | null; brief: Brief;
+  updates: { kind: string; body: string; author: string; created_at: string }[];
 };

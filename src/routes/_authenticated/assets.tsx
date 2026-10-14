@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AssetDialog, ASSET_TYPES } from "@/components/soc/AssetDialog";
-import { deleteAsset, getAsset, listAssets, setAssetMonitoringApproval } from "@/lib/api/soc.functions";
+import { deleteAsset, getAsset, listAssets, listTeams, setAssetMonitoring } from "@/lib/api/soc.functions";
 import { useCan } from "@/lib/session";
 import { downloadCsv } from "@/lib/risk";
 import type { Asset } from "@/lib/types";
@@ -27,6 +27,8 @@ function Assets() {
   const [dialog, setDialog] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
   const { data = [], isLoading } = useQuery({ queryKey: ["assets"], queryFn: () => listAssets(), refetchInterval: 60000 });
+  const { data: teams = [] } = useQuery({ queryKey: ["teams"], queryFn: () => listTeams() });
+  const teamName = (id: string | null | undefined) => teams.find((t) => t.id === id)?.name ?? null;
   const rows = data.filter((a) => (type === "all" || a.asset_type === type) && (exposure === "all" || a.exposure === exposure) &&
     `${a.name} ${a.address ?? ""} ${a.owner ?? ""} ${a.tags.join(" ")}`.toLowerCase().includes(q.toLowerCase()));
 
@@ -57,7 +59,7 @@ function Assets() {
       </div>
       {isLoading ? <p className="data text-sm text-muted-foreground">Loading inventory…</p> : (
         <Table>
-          <thead><tr><Th>Asset</Th><Th>Type</Th><Th>Address</Th><Th>Exposure</Th><Th>Criticality</Th><Th>Owner</Th><Th>Risk</Th><Th>Status</Th><Th>Last seen</Th></tr></thead>
+          <thead><tr><Th>Asset</Th><Th>Type</Th><Th>Address</Th><Th>Exposure</Th><Th>Criticality</Th><Th>Team</Th><Th>Risk</Th><Th>Status</Th><Th>Last seen</Th></tr></thead>
           <tbody>
             {rows.map((a) => (
               <tr key={a.id} className="cursor-pointer" onClick={() => setDetail(a.id)}>
@@ -65,13 +67,13 @@ function Assets() {
                   {a.name}
                   {a.is_new && <span className="data ml-1 rounded bg-primary/15 px-1 text-[10px] text-primary">NEW</span>}
                   {a.tags.includes("demo") && <span className="data ml-1 rounded bg-muted px-1 text-[10px] text-muted-foreground">DEMO</span>}
-                  {a.exposure === "external" && !a.monitoring_approved && <span className="data ml-1 rounded bg-sev-medium/15 px-1 text-[10px] text-sev-medium" title="Not scanned until its monitoring scope is approved">UNAPPROVED</span>}
+                  {!a.monitored && <span className="data ml-1 rounded bg-muted px-1 text-[10px] text-muted-foreground" title="Not being checked. Open it and press Start monitoring.">NOT MONITORED</span>}
                 </Td>
                 <Td className="data text-xs capitalize text-muted-foreground">{a.asset_type}</Td>
                 <Td className="data max-w-56 truncate text-xs">{a.address}</Td>
                 <Td className={`data text-xs ${a.exposure === "external" ? "text-sev-medium" : "text-muted-foreground"}`}>{a.exposure}</Td>
                 <Td><SeverityBadge s={a.criticality} /></Td>
-                <Td className="text-muted-foreground">{a.owner}</Td>
+                <Td className="text-muted-foreground">{teamName(a.team_id) ?? <span className="text-sev-medium" title="Issues can't be sent until a team owns this asset">{a.owner ? `${a.owner} (no team)` : "no team"}</span>}</Td>
                 <Td className="data text-xs">
                   {a.open_alerts ? <span className="text-sev-high">{a.open_alerts} alerts </span> : null}
                   {a.open_vulns ? <span className="text-sev-medium">{a.open_vulns} vulns</span> : null}
@@ -100,9 +102,10 @@ function AssetSheet({ id, onClose, onEdit }: { id: string | null; onClose: () =>
     mutationFn: () => deleteAsset({ data: { id: id! } }),
     onSuccess: () => { toast.success("Asset deleted"); onClose(); qc.invalidateQueries({ queryKey: ["assets"] }); },
   });
-  const approval = useMutation({
-    mutationFn: (approved: boolean) => setAssetMonitoringApproval({ data: { id: id!, approved } }),
-    onSuccess: (result) => { toast.success(result.approved ? "Monitoring scope approved" : "Monitoring scope revoked"); qc.invalidateQueries({ queryKey: ["assets"] }); qc.invalidateQueries({ queryKey: ["asset", id] }); },
+  const monitoring = useMutation({
+    mutationFn: (on: boolean) => setAssetMonitoring({ data: { id: id!, on } }),
+    onSuccess: (result) => { toast.success(result.on ? "Monitoring started — first check on the next run" : "Monitoring stopped"); qc.invalidateQueries({ queryKey: ["assets"] }); qc.invalidateQueries({ queryKey: ["asset", id] }); },
+    onError: (e: Error) => toast.error(e.message),
   });
   const a = data?.asset;
   return (
@@ -120,7 +123,7 @@ function AssetSheet({ id, onClose, onEdit }: { id: string | null; onClose: () =>
             {a.notes && <p className="mt-3 text-sm text-muted-foreground">{a.notes}</p>}
             <dl className="data mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
               {[
-                ["Address", a.address], ["Type", a.asset_type], ["Exposure", a.exposure], ["Owner", a.owner], ["Environment", a.environment],
+                ["Address", a.address], ["Type", a.asset_type], ["Exposure", a.exposure], ["Owner", a.owner], ["Monitoring", a.monitored ? "on" : "off"], ["Environment", a.environment],
                 ["Discovered via", a.discovered_via], ["HTTP status", a.http_status], ["Response", a.response_ms ? `${a.response_ms} ms` : null],
                 ["TLS issuer", a.tls_issuer], ["TLS expires", a.tls_expires_at ? new Date(a.tls_expires_at).toLocaleDateString() : null],
                 ["Open ports", a.open_ports.join(", ") || null], ["Name servers", a.dns?.ns?.join(", ") || null],
@@ -131,7 +134,7 @@ function AssetSheet({ id, onClose, onEdit }: { id: string | null; onClose: () =>
             </dl>
             <div className="mt-4 flex gap-2">
               {canManage && <Button size="sm" variant="outline" onClick={() => onEdit(a)}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>}
-              {canManage && <Button size="sm" variant="outline" onClick={() => approval.mutate(!a.monitoring_approved)} disabled={approval.isPending}>{a.monitoring_approved ? "Revoke monitoring approval" : "Approve monitoring scope"}</Button>}
+              {canManage && <Button size="sm" variant="outline" onClick={() => monitoring.mutate(!a.monitored)} disabled={monitoring.isPending}>{a.monitored ? "Stop monitoring" : "Start monitoring"}</Button>}
               {canDelete && <Button size="sm" variant="ghost" className="text-sev-critical" onClick={() => { if (confirm(`Delete ${a.name}? Its check history and vulnerabilities are deleted too.`)) del.mutate(); }}><Trash2 className="mr-1 h-3.5 w-3.5" />Delete</Button>}
             </div>
             <Panel title="Open alerts" className="mt-5">

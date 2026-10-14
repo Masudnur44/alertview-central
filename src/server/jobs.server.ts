@@ -4,9 +4,10 @@ import { runChecks } from "./monitor/checks.server";
 import { runDiscovery } from "./monitor/discovery.server";
 import { refreshAllFeeds } from "./intel.server";
 import { checkSilentSources } from "./detect.server";
+import { runEarlyWarnings } from "./monitor/early.server";
 import { jobResultOk } from "./monitor/policy";
 
-export type JobName = "checks" | "discovery" | "intel" | "silent_sources" | "retention";
+export type JobName = "checks" | "discovery" | "intel" | "silent_sources" | "retention" | "early_warning";
 
 const running = new Set<JobName>();
 
@@ -29,13 +30,14 @@ const RUNNERS: Record<JobName, () => Promise<unknown>> = {
   intel: () => refreshAllFeeds(),
   silent_sources: () => asSystem((tx) => checkSilentSources(tx)).then((alerts) => ({ alerts })),
   retention,
+  early_warning: () => runEarlyWarnings(),
 };
 
 /** Runs a job once, recording it in job_runs. Concurrent runs of the same job in this process are skipped. */
 export async function runJob(name: JobName): Promise<unknown> {
   if (running.has(name)) return { skipped: "already running" };
   running.add(name);
-  let connection: Awaited<ReturnType<typeof db>["reserve"]> | undefined;
+  let connection: Awaited<ReturnType<ReturnType<typeof db>["reserve"]>> | undefined;
   let locked = false;
   let runId: number | undefined;
   try {

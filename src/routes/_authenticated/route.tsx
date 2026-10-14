@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  LayoutDashboard, Server, Radar, Siren, FolderKanban, Bug, Activity, FileBarChart, Settings, ShieldCheck, LogOut, UserCog,
+  LayoutDashboard, Server, Radar, Siren, FolderKanban, Bug, Activity, FileBarChart, Settings, ShieldCheck, LogOut, UserCog, MonitorDot, Send, Wrench,
 } from "lucide-react";
 import { getSession, signOut } from "@/lib/api/auth.functions";
 import { roleLabel } from "@/lib/permissions";
@@ -14,16 +14,23 @@ export const Route = createFileRoute("/_authenticated")({
     if (session.needsMfa) throw redirect({ to: "/auth/mfa" });
     if (session.user.status !== "active") throw redirect({ to: "/pending" });
     if (session.mustEnrollMfa && location.pathname !== "/account") throw redirect({ to: "/account", search: { setup: "mfa" } });
+    // Developers only see the issues handed to their team.
+    const developerOnly = session.user.roles.length > 0 && session.user.roles.every((r) => r === "developer");
+    if (developerOnly && !location.pathname.startsWith("/my-issues") && location.pathname !== "/account") throw redirect({ to: "/my-issues" });
     return { session };
   },
   component: Shell,
 });
 
+const devNav = [{ to: "/my-issues", label: "My issues", icon: Wrench }] as const;
+
 const nav = [
+  { to: "/command", label: "Command Center", icon: MonitorDot },
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { to: "/assets", label: "Assets", icon: Server },
   { to: "/surface", label: "External Surface", icon: Radar },
   { to: "/alerts", label: "Alerts", icon: Siren },
+  { to: "/issues", label: "Issues to devs", icon: Send },
   { to: "/incidents", label: "Incidents", icon: FolderKanban },
   { to: "/vulnerabilities", label: "Vulnerabilities", icon: Bug },
   { to: "/activity", label: "Activity", icon: Activity },
@@ -36,6 +43,8 @@ function Shell() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const enrolling = session.mustEnrollMfa;
+  const developerOnly = session.user.roles.every((r) => r === "developer");
+  const items = developerOnly ? devNav : nav;
   async function doSignOut() {
     await qc.cancelQueries();
     qc.clear();
@@ -53,7 +62,7 @@ function Shell() {
           <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-ok" /> Live · 24/7
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
-          {!enrolling && nav.map(({ to, label, icon: Icon }) => (
+          {!enrolling && items.map(({ to, label, icon: Icon }) => (
             <Link key={to} to={to}
               className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               activeProps={{ className: "bg-sidebar-accent text-primary! border-l-2 border-primary" }}>
@@ -75,7 +84,7 @@ function Shell() {
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex gap-1 overflow-x-auto border-b px-3 py-2 md:hidden print:hidden">
-          {!enrolling && nav.map(({ to, label }) => (
+          {!enrolling && items.map(({ to, label }) => (
             <Link key={to} to={to} className="whitespace-nowrap rounded px-2 py-1 text-xs text-muted-foreground"
               activeProps={{ className: "bg-accent text-primary!" }}>{label}</Link>
           ))}

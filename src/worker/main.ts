@@ -3,7 +3,7 @@
 import { asSystem, closeDb } from "@/server/db.server";
 import { env } from "@/server/env.server";
 import { runJob, type JobName } from "@/server/jobs.server";
-import { deliverPending } from "@/server/notify.server";
+import { deliverOutbox, deliverPending } from "@/server/notify.server";
 
 type Schedule = { job: JobName; everyMinutes: (s: Record<string, number>) => number };
 
@@ -12,6 +12,7 @@ const SCHEDULE: Schedule[] = [
   { job: "discovery", everyMinutes: (s) => (s.discovery_interval_hours || 24) * 60 },
   { job: "intel", everyMinutes: (s) => (s.intel_interval_hours || 24) * 60 },
   { job: "silent_sources", everyMinutes: () => 15 },
+  { job: "early_warning", everyMinutes: () => 15 },
   { job: "retention", everyMinutes: () => 360 },
 ];
 
@@ -50,6 +51,8 @@ async function notificationsLoop() {
     try {
       const r = await deliverPending();
       if (r.sent || r.failed) console.log(`[worker] notifications sent=${r.sent} failed=${r.failed}`);
+      const o = await deliverOutbox();
+      if (o.sent || o.failed) console.log(`[worker] team messages sent=${o.sent} failed=${o.failed}`);
     } catch (e) {
       console.error("[worker] notification delivery failed", e);
     }

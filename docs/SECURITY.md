@@ -25,6 +25,13 @@ A SOC is a high-value target: it knows where everything is and what is vulnerabl
 | System Administrator | Assets, domains, event sources, triage |
 | Management | Read-only dashboards and reports |
 | Auditor | Read-only plus the audit trail |
+| Developer | Only the issues sent to their own team (read, comment, set acknowledged / in progress / fixed). No alerts, events, assets or other teams — enforced by RLS on `issues`/`issue_updates` |
+
+## Issue links for developers (no login)
+
+- A link is a random 256-bit token; only its SHA-256 hash is stored (`issue_links`). It opens exactly one issue, expires (`ISSUE_LINK_DAYS`, default 14), and is revoked when the SOC creates a new one.
+- The page shows only the diagnosis that was sent; internal ids are hidden. Updates are limited to acknowledged / in progress / fixed plus a comment, carry the name the developer typed, are rate-limited per IP and are written to the audit trail. Only the SOC can close (verify) an issue.
+- The page sends `noindex` and `no-referrer` so the token does not leak to search engines or other sites. Treat a link like a password: anyone who has it can update that issue.
 
 ## Audit trail
 

@@ -2,7 +2,7 @@
 // matrix, then runs as the signed-in user so row-level security and audit apply.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import type { Alert, Asset, CheckResult, Incident, IncidentEvent, SocEvent, Vulnerability } from "@/lib/types";
+import type { Alert, Asset, CheckResult, Incident, IncidentEvent, Severity, SocEvent, Vulnerability } from "@/lib/types";
 
 const uuid = z.string().uuid();
 const severity = z.enum(["critical", "high", "medium", "low", "info"]);
@@ -55,7 +55,8 @@ const AssetInput = z.object({
   owner: z.string().trim().max(120).optional().nullable(),
   criticality: severity.default("low"),
   exposure: z.enum(["internal", "external"]),
-  monitored: z.boolean().default(false),
+  monitored: z.boolean().default(true),
+  team_id: uuid.nullable().optional(),
   tags: z.array(z.string().trim().max(40)).max(20).default([]),
   notes: z.string().max(4000).optional().nullable(),
   status: z.enum(["online", "offline", "degraded", "unknown", "retired"]).optional(),
@@ -79,7 +80,6 @@ export const saveAsset = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => AssetInput.parse(d))
   .handler(async ({ data }) => {
     const { guard } = await import("@/server/api.server");
-    const { run } = await guard("assets.manage");
     if (data.exposure === "external" && data.address && /^https?:\/\//i.test(data.address)) {
       try {
         const u = new URL(data.address);
@@ -88,33 +88,37 @@ export const saveAsset = createServerFn({ method: "POST" })
         throw new Error("Address must be a valid http(s) URL, host, host:port or IP.");
       }
     }
+    // Whoever adds or edits an asset (asset managers only) approves its monitoring scope.
+    const { run, s } = await guard("assets.manage");
     return run(async (tx) => {
+      if (data.address) {
+        const requestedAddress = canonicalAddress(data.address);
+        const existing = await tx<{ id: string; name: string; address: string }[]>`
+          select id, name, address from assets where address is not null`;
+        const duplicate = existing.find((asset) => asset.id !== data.id && canonicalAddress(asset.address) === requestedAddress);
+        if (duplicate) throw new Error(`An asset with this address already exists: ${duplicate.name}`);
+      }
       if (data.id) {
-        if (data.monitored) {
-          const [approval] = await tx`select monitoring_approved from assets where id = ${data.id}`;
-          if (!approval?.monitoring_approved) throw new Error("Approve the monitoring scope before enabling monitoring.");
-        }
         const [row] = await tx`
           update assets set name = ${data.name}, asset_type = ${data.asset_type}, address = ${data.address ?? null}, environment = ${data.environment},
-            owner = ${data.owner ?? null}, criticality = ${data.criticality}, exposure = ${data.exposure}, monitored = ${data.monitored},
+            owner = ${data.owner ?? null}, criticality = ${data.criticality}, exposure = ${data.exposure},
+            team_id = case when ${data.team_id !== undefined} then ${data.team_id ?? null}::uuid else team_id end,
+            monitoring_approved = monitoring_approved or ${data.monitored},
+            monitoring_approved_by = case when monitoring_approved then monitoring_approved_by when ${data.monitored} then ${s.user.id}::uuid else null end,
+            monitoring_approved_at = case when monitoring_approved then monitoring_approved_at when ${data.monitored} then now() else null end,
+            monitored = ${data.monitored},
             tags = ${data.tags}, notes = ${data.notes ?? null},
             status = coalesce(${data.status ?? null}, status), is_new = coalesce(${data.is_new ?? null}, is_new)
           where id = ${data.id} returning id`;
         if (!row) throw new Error("Asset not found or you cannot edit it.");
         return { id: row.id as string };
       }
-      if (data.monitored) throw new Error("Approve the monitoring scope before enabling monitoring.");
-      if (data.address) {
-        const requestedAddress = canonicalAddress(data.address);
-        const existing = await tx<{ name: string; address: string }[]>`
-          select name, address from assets where address is not null`;
-        const duplicate = existing.find((asset) => canonicalAddress(asset.address) === requestedAddress);
-        if (duplicate) throw new Error(`An asset with this address already exists: ${duplicate.name}`);
-      }
       const [row] = await tx`
-        insert into assets (name, asset_type, address, environment, owner, criticality, exposure, monitored, tags, notes, discovered_via, status)
+        insert into assets (name, asset_type, address, environment, owner, criticality, exposure, monitored, team_id, tags, notes, discovered_via, status,
+                            monitoring_approved, monitoring_approved_by, monitoring_approved_at)
         values (${data.name}, ${data.asset_type}, ${data.address ?? null}, ${data.environment}, ${data.owner ?? null}, ${data.criticality},
-                ${data.exposure}, ${data.monitored}, ${data.tags}, ${data.notes ?? null}, 'manual', 'unknown')
+                ${data.exposure}, ${data.monitored}, ${data.team_id ?? null}, ${data.tags}, ${data.notes ?? null}, 'manual', 'unknown',
+                ${data.monitored}, ${data.monitored ? s.user.id : null}, ${data.monitored ? new Date().toISOString() : null})
         returning id`;
       return { id: row!.id as string };
     }).catch((e: Error) => {
@@ -123,22 +127,22 @@ export const saveAsset = createServerFn({ method: "POST" })
     });
   });
 
-export const setAssetMonitoringApproval = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ id: uuid, approved: z.boolean() }).parse(d))
+/** Turn monitoring on/off. Turning it on records you as the approver of its scope. */
+export const setAssetMonitoring = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: uuid, on: z.boolean() }).parse(d))
   .handler(async ({ data }) => {
     const { guard } = await import("@/server/api.server");
     const { run, s } = await guard("assets.manage");
     return run(async (tx) => {
-      const [asset] = await tx<{ id: string }[]>`select id from assets where id = ${data.id}`;
-      if (!asset) throw new Error("Asset not found or you cannot manage it.");
-      await tx`
-        update assets
-        set monitoring_approved = ${data.approved},
-            monitoring_approved_by = ${data.approved ? s.user.id : null},
-            monitoring_approved_at = case when ${data.approved} then now() else null end,
-            monitored = case when ${data.approved} then monitored else false end
-        where id = ${data.id}`;
-      return { id: asset.id, approved: data.approved };
+      const [row] = await tx`
+        update assets set
+          monitoring_approved = ${data.on},
+          monitoring_approved_by = case when ${data.on} then coalesce(monitoring_approved_by, ${s.user.id}::uuid) else null end,
+          monitoring_approved_at = case when ${data.on} then coalesce(monitoring_approved_at, now()) else null end,
+          monitored = ${data.on}, is_new = case when ${data.on} then false else is_new end
+        where id = ${data.id} returning id`;
+      if (!row) throw new Error("Asset not found or you cannot manage it.");
+      return { id: row.id as string, on: data.on };
     });
   });
 
@@ -555,3 +559,202 @@ export const getReport = createServerFn({ method: "GET" })
       return { metrics: m, incidents: inc, bySeverity, bySource, byTechnique, topAssets, daily, coverage: cov, vulns: vul, events: ev };
     });
   });
+
+// ---------------------------------------------------------------------------
+// Teams (owners) — read for every SOC member
+// ---------------------------------------------------------------------------
+export type TeamRow = { id: string; name: string; description: string | null; emails: string[]; telegram_chat_id: string | null; whatsapp_numbers: string[]; assets: number; open_issues: number; overdue: number; members: number };
+
+export const listTeams = createServerFn({ method: "GET" }).handler(async () => {
+  const { guard } = await import("@/server/api.server");
+  const { run } = await guard("view");
+  return run((tx) => tx<TeamRow[]>`
+    select t.id, t.name, t.description, t.emails, t.telegram_chat_id, t.whatsapp_numbers,
+      (select count(*)::int from assets a where a.team_id = t.id) as assets,
+      (select count(*)::int from issues i where i.team_id = t.id and i.status in ('open','acknowledged','in_progress')) as open_issues,
+      (select count(*)::int from issues i where i.team_id = t.id and i.status in ('open','acknowledged','in_progress') and i.due_at < now()) as overdue,
+      (select count(*)::int from users u where u.team_id = t.id and u.status = 'active') as members
+    from teams t order by t.name`);
+});
+
+// ---------------------------------------------------------------------------
+// Diagnosis + issues (hand-off to developers)
+// ---------------------------------------------------------------------------
+export const getAlertBrief = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) => z.object({ id: uuid }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run } = await guard("view");
+    const { buildBrief } = await import("@/server/issues.server");
+    return run(async (tx) => {
+      const { brief, alert } = await buildBrief(tx, data.id);
+      const [team] = alert.asset_id ? await tx`select t.id, t.name from assets a join teams t on t.id = a.team_id where a.id = ${alert.asset_id}` : [];
+      const issues = await tx`select id, ref, status, team_id from issues where alert_id = ${data.id} or (dedupe_key is not null and dedupe_key = ${alert.dedupe_key ?? null}) order by created_at desc limit 5`;
+      return { brief, suggestedTeam: (team as { id: string; name: string } | undefined) ?? null, issues };
+    });
+  });
+
+const IssueStatus = z.enum(["open", "acknowledged", "in_progress", "fixed", "verified", "wont_fix"]);
+
+export const createIssue = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({
+    alertId: uuid.optional(),
+    teamId: uuid.optional(),
+    title: z.string().trim().max(200).optional(),
+    severity: severity.optional(),
+    note: z.string().trim().max(4000).optional(),
+    assetId: uuid.optional(),
+  }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run, s } = await guard("issues.send");
+    const { createIssue } = await import("@/server/issues.server");
+    return run((tx) => createIssue(tx, data, s.user.id));
+  });
+
+export type IssueRow = {
+  id: string; ref: string; title: string; severity: Severity; status: string; team_id: string | null; team_name: string | null;
+  asset_name: string | null; created_at: string; due_at: string | null; acknowledged_at: string | null; fixed_at: string | null;
+  verified_at: string | null; reopened_count: number; last_update: string | null; overdue: boolean;
+};
+
+export const listIssues = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) => z.object({ status: z.string().max(20).default("active"), teamId: z.string().max(40).default("") }).parse(d ?? {}))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run } = await guard("view");
+    return run((tx) => tx<IssueRow[]>`
+      select i.id, i.ref, i.title, i.severity, i.status, i.team_id, t.name as team_name, a.name as asset_name, i.created_at, i.due_at,
+             i.acknowledged_at, i.fixed_at, i.verified_at, i.reopened_count,
+             (select max(created_at) from issue_updates u where u.issue_id = i.id) as last_update,
+             (i.status in ('open','acknowledged','in_progress') and i.due_at < now()) as overdue
+      from issues i left join teams t on t.id = i.team_id left join assets a on a.id = i.asset_id
+      where true
+        ${data.status === "active" ? tx`and i.status in ('open','acknowledged','in_progress','fixed')` : data.status === "all" ? tx`` : tx`and i.status = ${data.status}`}
+        ${data.teamId ? tx`and i.team_id = ${data.teamId}::uuid` : tx``}
+      order by (i.status in ('open','acknowledged','in_progress') and i.due_at < now()) desc, app.severity_rank(i.severity) desc, i.created_at desc
+      limit 500`);
+  });
+
+export const getIssue = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) => z.object({ id: uuid }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run } = await guard("view");
+    return run(async (tx) => {
+      const [issue] = await tx`
+        select i.*, t.name as team_name, t.emails, t.telegram_chat_id, t.whatsapp_numbers, a.name as asset_name, u.display_name as created_by_name
+        from issues i left join teams t on t.id = i.team_id left join assets a on a.id = i.asset_id left join users u on u.id = i.created_by
+        where i.id = ${data.id}`;
+      if (!issue) throw new Error("Issue not found");
+      const updates = await tx`
+        select x.id, x.kind, x.body, x.created_at, coalesce(u.display_name, x.author_label, 'system') as author
+        from issue_updates x left join users u on u.id = x.author where x.issue_id = ${data.id} order by x.created_at`;
+      const messages = await tx`select channel, recipient, status, last_error, sent_at, created_at from outbox where issue_id = ${data.id} order by id desc limit 30`.catch(() => []);
+      const [link] = await tx`select expires_at, last_used_at from issue_links where issue_id = ${data.id} and revoked_at is null order by created_at desc limit 1`;
+      return { issue, updates, messages, link: link ?? null };
+    });
+  });
+
+export const updateIssue = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({
+    id: uuid,
+    status: IssueStatus.optional(),
+    teamId: uuid.optional(),
+    comment: z.string().trim().max(4000).optional(),
+    resend: z.boolean().optional(),
+    newLink: z.boolean().optional(),
+  }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run, s } = await guard("issues.send");
+    const { newIssueLink, queueIssueMessages } = await import("@/server/issues.server");
+    return run(async (tx) => {
+      const [before] = await tx`select status, team_id from issues where id = ${data.id}`;
+      if (!before) throw new Error("Issue not found");
+      let link: string | null = null;
+      if (data.teamId && data.teamId !== before.team_id) {
+        const [t] = await tx`select name from teams where id = ${data.teamId}`;
+        await tx`update issues set team_id = ${data.teamId} where id = ${data.id}`;
+        await tx`insert into issue_updates (issue_id, kind, body, author) values (${data.id}, 'status', ${`Reassigned to ${t?.name ?? "another team"}`}, ${s.user.id})`;
+        data.resend = true;
+      }
+      if (data.status && data.status !== before.status) {
+        await tx`update issues set status = ${data.status} where id = ${data.id}`;
+        await tx`insert into issue_updates (issue_id, kind, body, author) values (${data.id}, 'status', ${`Status: ${before.status} → ${data.status}`}, ${s.user.id})`;
+      }
+      if (data.comment) await tx`insert into issue_updates (issue_id, kind, body, author) values (${data.id}, 'comment', ${data.comment}, ${s.user.id})`;
+      if (data.newLink || data.resend) link = await newIssueLink(tx, data.id, s.user.id);
+      if (data.resend) {
+        const n = await queueIssueMessages(tx, data.id, "reminder", link);
+        await tx`insert into issue_updates (issue_id, kind, body, author) values (${data.id}, 'sent', ${`Sent to the team again (${n} message${n === 1 ? "" : "s"}).`}, ${s.user.id})`;
+      }
+      return { link };
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// Command Center: one live picture of everything
+// ---------------------------------------------------------------------------
+export const getCommandCenter = createServerFn({ method: "GET" }).handler(async () => {
+  const { guard } = await import("@/server/api.server");
+  const { run } = await guard("view");
+  return run(async (tx) => {
+    const board = await tx`
+      select a.id, a.name, a.address, a.status, a.criticality, a.exposure, a.monitored, a.is_new, a.response_ms, a.http_status, a.tls_expires_at,
+             a.last_checked_at, a.last_seen, t.name as team_name, a.team_id,
+             (select count(*)::int from alerts x where x.asset_id = a.id and x.status not in ('resolved','false_positive','closed')) as open_alerts,
+             (select max(app.severity_rank(x.severity)) from alerts x where x.asset_id = a.id and x.status not in ('resolved','false_positive','closed')) as worst_rank,
+             (select count(*)::int from issues i where i.asset_id = a.id and i.status in ('open','acknowledged','in_progress')) as open_issues,
+             (select coalesce(json_agg(r.ok order by r.checked_at), '[]') from (select ok, checked_at from check_results c
+               where c.asset_id = a.id and c.check_type = 'availability' order by checked_at desc limit 12) r) as recent
+      from assets a left join teams t on t.id = a.team_id
+      where a.status <> 'retired' and (a.monitored or a.last_seen > now() - interval '7 days')
+      order by coalesce((select max(app.severity_rank(x.severity)) from alerts x where x.asset_id = a.id and x.status not in ('resolved','false_positive','closed')), 0) desc,
+               case a.status when 'offline' then 0 when 'degraded' then 1 else 2 end, a.name
+      limit 300`;
+    const attention = await tx`
+      select a.id, a.title, a.severity, a.status, a.source, a.detected_at, a.last_seen_at, a.event_count, a.acknowledged_at,
+             s.name as asset_name, r.key as rule_key, t.name as team_name,
+             (select i.ref from issues i where i.alert_id = a.id order by i.created_at desc limit 1) as issue_ref
+      from alerts a left join assets s on s.id = a.asset_id left join detection_rules r on r.id = a.rule_id left join teams t on t.id = s.team_id
+      where a.status not in ('resolved','false_positive','closed') and a.source <> 'early_warning'
+      order by app.severity_rank(a.severity) desc, (a.acknowledged_at is null) desc, a.last_seen_at desc limit 25`;
+    const warnings = await tx`
+      select a.id, a.title, a.severity, a.description, a.detected_at, s.name as asset_name, r.key as rule_key,
+             (select i.ref from issues i where i.alert_id = a.id order by i.created_at desc limit 1) as issue_ref
+      from alerts a left join assets s on s.id = a.asset_id left join detection_rules r on r.id = a.rule_id
+      where a.status not in ('resolved','false_positive','closed') and (a.source = 'early_warning' or r.key in ('cert_expiring','source_silent'))
+      order by app.severity_rank(a.severity) desc, a.detected_at desc limit 20`;
+    const slaSoon = await tx`
+      select v.id, v.title, v.severity, v.due_at, s.name as asset_name from vulnerabilities v left join assets s on s.id = v.asset_id
+      where v.status not in ('fixed','risk_accepted') and v.due_at < now() + interval '3 days' order by v.due_at limit 10`;
+    const issues = await tx`
+      select i.id, i.ref, i.title, i.severity, i.status, i.due_at, t.name as team_name, (i.due_at < now()) as overdue
+      from issues i left join teams t on t.id = i.team_id
+      where i.status in ('open','acknowledged','in_progress','fixed') order by (i.due_at < now()) desc, app.severity_rank(i.severity) desc, i.due_at limit 20`;
+    const teams = await tx`
+      select t.id, t.name,
+        count(i.*) filter (where i.status in ('open','acknowledged','in_progress'))::int as open,
+        count(i.*) filter (where i.status in ('open','acknowledged','in_progress') and i.due_at < now())::int as overdue,
+        count(i.*) filter (where i.status = 'open' and i.created_at < now() - interval '1 hour')::int as unacknowledged,
+        round(avg(extract(epoch from i.fixed_at - i.created_at) / 3600) filter (where i.fixed_at > now() - interval '30 days'))::int as mttr_hours
+      from teams t left join issues i on i.team_id = t.id group by t.id order by overdue desc, open desc, t.name`;
+    const changes = await tx`
+      select * from (
+        select 'alert' as kind, a.title as text, a.severity::text as severity, a.detected_at as at from alerts a where a.detected_at > now() - interval '2 hours'
+        union all
+        select 'resolved', a.title, a.severity::text, a.resolved_at from alerts a where a.resolved_at > now() - interval '2 hours'
+        union all
+        select 'issue', i.ref || ' ' || x.body, i.severity::text, x.created_at from issue_updates x join issues i on i.id = x.issue_id
+          where x.created_at > now() - interval '2 hours' and x.kind in ('status','comment','system')
+      ) c order by at desc limit 30`;
+    const [ingest] = await tx`
+      select count(*)::int as events_hour, count(*) filter (where outcome = 'failure')::int as failures_hour,
+        (select count(*)::int from event_sources where enabled and last_event_at > now() - interval '1 hour') as sources_live,
+        (select count(*)::int from event_sources where enabled) as sources_total
+      from events where occurred_at > now() - interval '1 hour'`;
+    const [hb] = await tx`select value from settings where key = 'worker_heartbeat'`;
+    return { board, attention, warnings, slaSoon, issues, teams, changes, ingest, workerHeartbeat: (hb?.value as string | undefined) ?? null, now: new Date().toISOString() };
+  });
+});

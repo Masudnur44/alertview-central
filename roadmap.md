@@ -7,7 +7,9 @@
 - [x] Append-only, hash-chained audit trail written by database triggers; integrity check and export
 - [x] External surface: live TLS certificate inspection, uptime/latency, security headers, risky exposed ports, DNS NS/MX change detection, SSRF-safe probing, auto-resolve on recovery
 - [x] Subdomain discovery from certificate-transparency logs
-- [x] Monitoring-scope approval gate: assets are never probed until an authorized user approves them; duplicate-address protection; job locking across processes
+- [x] Monitoring scope: only authorized roles can add assets, and adding one is the approval (start/stop per asset); duplicate-address protection; job locking across processes
+- [x] Command Center (live single screen), early warnings (latency vs baseline, flapping, cert renewal, auth-failure surge)
+- [x] Developer hand-off: teams, diagnosis briefs with runbooks, issues with SLA, email/Telegram/WhatsApp delivery, secure no-login links, Developer role, auto-verify and auto-reopen
 - [x] Detections: brute force, password spraying, success-after-brute-force, off-hours privileged login, suspicious process chains / encoded PowerShell, LOLBin downloads, new admin accounts, log cleared, new services, threat-intel IP match, silent sources, Wazuh alerts — all tunable
 - [x] Threat intel: CISA KEV, Feodo Tracker, Spamhaus DROP, Tor exits
 - [x] Notifications: email, Slack, Teams, Telegram, signed webhooks, with retries
@@ -20,6 +22,8 @@
 - [ ] Remove demo data; add the real asset inventory and root domains
 - [ ] Create event sources and roll agents to servers/laptops (or connect Wazuh)
 - [ ] Add at least one notification channel and send a test
+- [ ] Create the developer teams with their emails / Telegram group / WhatsApp numbers and assign every asset to a team
+- [ ] (WhatsApp) get a Meta WhatsApp Business number and an approved message template
 - [ ] Copy `./backups` off the server on a schedule
 
 ## Next
@@ -28,4 +32,5 @@
 - [ ] Syslog receiver for firewalls/network devices
 - [ ] WebAuthn / passkeys for administrators
 - [ ] Scheduled PDF report emails to management
-- [ ] Case assignment SLAs and on-call escalation
+- [ ] On-call escalation when a team ignores an overdue issue (auto-reminders, escalate to team lead)
+- [ ] Two-way Telegram bot (developers reply "fixed" in the group)

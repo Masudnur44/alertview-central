@@ -1,6 +1,7 @@
 // Raising alerts: one open alert per dedupe key, rule enable/disable respected,
 // hit counters maintained. New alerts queue notifications via a database trigger.
 import type { Tx } from "./db.server";
+import { reopenIssuesForCondition, verifyIssuesForCondition } from "./issues.server";
 
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
@@ -45,11 +46,12 @@ export async function raiseAlert(tx: Tx, rules: Map<string, Rule>, a: RaiseInput
     on conflict (dedupe_key) where dedupe_key is not null and status not in ('resolved','false_positive','closed')
     do update set event_count = alerts.event_count + 1, last_seen_at = now(),
                   description = coalesce(excluded.description, alerts.description)
-    returning (xmax = 0) as inserted`;
+    returning id, (xmax = 0) as inserted`;
   const inserted = Boolean(row?.inserted);
   if (inserted && rule) {
     await tx`update detection_rules set hits = hits + 1, last_hit_at = now() where id = ${rule.id}`;
   }
+  if (inserted && row?.id) await reopenIssuesForCondition(tx, a.dedupeKey, row.id as string);
   return inserted;
 }
 
@@ -58,5 +60,6 @@ export async function autoResolve(tx: Tx, dedupeKey: string, reason: string) {
   await tx`
     update alerts set status = 'resolved',
       details = coalesce(details, '{}'::jsonb) || ${tx.json({ auto_resolved: reason })}
-    where dedupe_key = ${dedupeKey} and status in ('new','acknowledged')`;
+    where dedupe_key = ${dedupeKey} and status in ('new','acknowledged','investigating')`;
+  await verifyIssuesForCondition(tx, dedupeKey);
 }

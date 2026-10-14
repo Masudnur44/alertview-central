@@ -3,6 +3,7 @@ import { z } from "zod";
 import { PageHeader } from "@/components/soc/ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TeamPanel } from "@/components/soc/settings/TeamPanel";
+import { DevTeamsPanel } from "@/components/soc/settings/DevTeamsPanel";
 import { SourcesPanel } from "@/components/soc/settings/SourcesPanel";
 import { RulesPanel } from "@/components/soc/settings/RulesPanel";
 import { ChannelsPanel } from "@/components/soc/settings/ChannelsPanel";
@@ -23,6 +24,7 @@ function Settings() {
   const navigate = Route.useNavigate();
   const tabs = [
     { id: "team", label: "Team & access", show: can(me.roles, "users.manage"), el: <TeamPanel /> },
+    { id: "devteams", label: "Developer teams", show: can(me.roles, "teams.manage"), el: <DevTeamsPanel /> },
     { id: "sources", label: "Event sources", show: can(me.roles, "sources.manage"), el: <SourcesPanel /> },
     { id: "rules", label: "Detection rules", show: true, el: <RulesPanel /> },
     { id: "channels", label: "Notifications", show: can(me.roles, "channels.manage"), el: <ChannelsPanel /> },

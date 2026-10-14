@@ -5,7 +5,8 @@ import { Panel, ago } from "@/components/soc/ui";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { adminUserAction, listUsers, setUserAccess } from "@/lib/api/admin.functions";
+import { adminUserAction, listUsers, setUserAccess, setUserTeam } from "@/lib/api/admin.functions";
+import { listTeams } from "@/lib/api/soc.functions";
 import { ROLES, roleLabel, type Role } from "@/lib/permissions";
 import { useMe } from "@/lib/session";
 import type { TeamMember } from "@/lib/types";
@@ -30,6 +31,11 @@ export function TeamPanel() {
       refresh();
     },
   });
+  const { data: teams = [] } = useQuery({ queryKey: ["teams"], queryFn: () => listTeams() });
+  const team = useMutation({
+    mutationFn: (v: { id: string; teamId: string | null }) => setUserTeam({ data: v }),
+    onSuccess: () => { toast.success("Team updated"); refresh(); qc.invalidateQueries({ queryKey: ["teams"] }); },
+  });
   const pending = data.filter((u) => u.status === "pending");
   return (
     <div className="space-y-4">
@@ -50,6 +56,11 @@ export function TeamPanel() {
                   <span className={u.mfa_enabled ? "text-ok" : "text-sev-medium"}>{u.mfa_enabled ? "2FA ON" : "NO 2FA"}</span>
                 </p>
               </div>
+              <select title="Developer team (decides which issues a Developer sees)" className="h-8 max-w-48 rounded-md border bg-background px-2 text-xs text-foreground"
+                value={u.team_id ?? ""} onChange={(e) => team.mutate({ id: u.id, teamId: e.target.value || null })}>
+                <option value="">No team</option>
+                {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
               <RolePicker value={u.roles as Role[]} disabled={u.id === me.id} onChange={(roles) => access.mutate({ id: u.id, roles })} />
               {u.id !== me.id && (
                 <DropdownMenu>
@@ -68,7 +79,7 @@ export function TeamPanel() {
             </li>
           ))}
         </ul>
-        <p className="mt-3 text-xs text-muted-foreground">You can't change your own access, so there is always at least one Security Administrator. Every change here is written to the audit trail.</p>
+        <p className="mt-3 text-xs text-muted-foreground">Developers: give them the "Developer" role and a team — they then see only that team's issues. You can't change your own access, so there is always at least one Security Administrator. Every change here is written to the audit trail.</p>
       </Panel>
     </div>
   );

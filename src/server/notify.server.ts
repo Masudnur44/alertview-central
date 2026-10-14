@@ -170,3 +170,50 @@ export async function deliverPending(limit = 50): Promise<{ sent: number; failed
   }
   return { sent, failed };
 }
+
+// ---------------------------------------------------------------------------
+// Outbox: messages to developer teams (issue hand-offs), email / Telegram / WhatsApp
+// ---------------------------------------------------------------------------
+async function sendTelegram(chatId: string, text: string) {
+  const token = env().TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("Telegram is not configured (set TELEGRAM_BOT_TOKEN).");
+  await safePost(`https://api.telegram.org/bot${token}/sendMessage`, { chat_id: chatId, text, disable_web_page_preview: true });
+}
+
+async function sendWhatsApp(to: string, text: string) {
+  const e = env();
+  if (!e.WHATSAPP_TOKEN || !e.WHATSAPP_PHONE_NUMBER_ID) throw new Error("WhatsApp is not configured (set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID).");
+  const number = to.replace(/[^\d]/g, "");
+  // Business-initiated WhatsApp messages must use an approved template; free text only works
+  // inside a 24-hour window after the recipient last wrote to the business number.
+  const body = e.WHATSAPP_TEMPLATE
+    ? { messaging_product: "whatsapp", to: number, type: "template",
+        template: { name: e.WHATSAPP_TEMPLATE, language: { code: e.WHATSAPP_TEMPLATE_LANG },
+                    components: [{ type: "body", parameters: [{ type: "text", text: text.slice(0, 1000) }] }] } }
+    : { messaging_product: "whatsapp", to: number, type: "text", text: { body: text.slice(0, 4000), preview_url: true } };
+  await safePost(`https://graph.facebook.com/v21.0/${e.WHATSAPP_PHONE_NUMBER_ID}/messages`, body, { authorization: `Bearer ${e.WHATSAPP_TOKEN}` });
+}
+
+export async function deliverOutbox(limit = 50): Promise<{ sent: number; failed: number }> {
+  const jobs = await asSystem((tx) => tx`
+    select id, channel, recipient, subject, body, html, attempts from outbox
+    where status = 'pending' and next_attempt_at <= now() order by id limit ${limit}`);
+  let sent = 0, failed = 0;
+  for (const j of jobs) {
+    try {
+      if (j.channel === "email") await sendMail({ to: j.recipient, subject: j.subject ?? "SOC issue", text: j.body, html: j.html ?? undefined });
+      else if (j.channel === "telegram") await sendTelegram(j.recipient, j.body);
+      else if (j.channel === "whatsapp") await sendWhatsApp(j.recipient, j.body);
+      await asSystem((tx) => tx`update outbox set status = 'sent', sent_at = now(), attempts = attempts + 1, last_error = null where id = ${j.id}`);
+      sent++;
+    } catch (e) {
+      failed++;
+      const retry = notificationRetry(Number(j.attempts) + 1);
+      await asSystem((tx) => tx`
+        update outbox set attempts = attempts + 1, last_error = ${(e as Error).message.slice(0, 500)},
+          status = ${retry.giveUp ? "failed" : "pending"}, next_attempt_at = now() + make_interval(mins => ${retry.delayMinutes})
+        where id = ${j.id}`);
+    }
+  }
+  return { sent, failed };
+}

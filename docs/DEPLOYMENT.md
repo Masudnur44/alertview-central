@@ -72,12 +72,22 @@ docker compose run --rm migrate node_modules/.bin/tsx scripts/create-admin.ts --
    ```
    and set `SEED_DEMO=false` in `.env`.
 2. **Team:** colleagues click *Request access* with their company email; approve them under **Settings → Team & access** and give each the least role they need.
-3. **Assets:** add websites/APIs as `https://…` URLs, services as `host:port`, servers by name. Mark internet-facing ones as *external*, then open each one and click **Approve monitoring scope** and switch on monitoring — nothing is probed until then. Only approve systems FINPAYTECH owns or is authorized to test.
-4. **Discovery:** **External Surface → Subdomain discovery → Add domain** `finpaytech.com`. New hostnames found in certificate-transparency logs appear as *NEW* assets with an alert.
-5. **Event sources & agents:** **Settings → Event sources**, create one source per group (Linux servers, Windows laptops, Wazuh). Copy the key (shown once) and follow [agents/README.md](../agents/README.md).
-6. **Notifications:** **Settings → Notifications** — add Email/Slack/Teams/Telegram/webhook channels and press **Send test**. Without a channel, nobody is told about critical alerts outside the console.
-7. **Tune detections:** **Settings → Detection rules** — business hours, privileged-account pattern, thresholds, risky ports.
-8. **Time zone & intervals:** **Settings → Platform & intel**.
+3. **Developer teams:** **Settings → Developer teams** — one team per group that fixes things (Web, Payments, IT Ops…), with their email addresses, Telegram group chat id and WhatsApp numbers. Developers who should sign in get the *Developer* role and a team under **Settings → Team & access**; everyone else just uses the secure link in the message.
+4. **Assets:** add websites/APIs as `https://…` URLs, services as `host:port`, servers by name, and pick the owning team. Adding an asset starts monitoring it (only Security Admin/Manager/System Admin can add assets, so adding is the approval); use **Stop monitoring** on the asset to pause it. Only add systems FINPAYTECH owns or is authorized to test. Discovered subdomains are *not* scanned until you open them and press **Start monitoring**.
+5. **Discovery:** **External Surface → Subdomain discovery → Add domain** `finpaytech.com`. New hostnames found in certificate-transparency logs appear as *NEW* assets with an alert.
+6. **Event sources & agents:** **Settings → Event sources**, create one source per group (Linux servers, Windows laptops, Wazuh). Copy the key (shown once) and follow [agents/README.md](../agents/README.md).
+7. **Notifications:** **Settings → Notifications** — add Email/Slack/Teams/Telegram/webhook channels and press **Send test**. Without a channel, nobody is told about critical alerts outside the console.
+8. **Tune detections:** **Settings → Detection rules** — business hours, privileged-account pattern, thresholds, risky ports.
+9. **Time zone & intervals:** **Settings → Platform & intel**.
+
+### Sending issues to developers (email, Telegram, WhatsApp)
+
+From an alert (or the Command Center) press **Send to developer**. The team gets the diagnosis — what is wrong, impact, where, when, evidence, likely causes, where to look, fix steps — with a deadline (critical 4h, high 24h, medium 3 days, low 7 days) and a secure link that needs no login. Progress shows under **Issues to devs**. When monitoring sees the problem is gone the issue is closed as *verified*; if it comes back within 30 days it is reopened and sent again.
+
+- **Email** uses the SMTP settings.
+- **Telegram:** create a bot with @BotFather, put the token in `TELEGRAM_BOT_TOKEN`, add the bot to the team's group and use the group's chat id (e.g. `-1001234567890`; forward a group message to @userinfobot to see it).
+- **WhatsApp:** needs a WhatsApp Business Cloud API number from Meta (`WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`). WhatsApp only delivers free text to people who messaged your number in the last 24 hours, so create and get approved a *utility* template with one body variable, e.g. "FINPAY SOC issue for your team: {{1}}", and set `WHATSAPP_TEMPLATE` to its name.
+- Links expire after `ISSUE_LINK_DAYS` (default 14). **New link** on the issue revokes the old one.
 
 ## 5. Backups and restore
 

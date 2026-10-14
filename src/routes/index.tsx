@@ -4,6 +4,6 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 // (which itself redirects to sign-in when needed).
 export const Route = createFileRoute("/")({
   beforeLoad: () => {
-    throw redirect({ to: "/dashboard" });
+    throw redirect({ to: "/command" });
   },
 });

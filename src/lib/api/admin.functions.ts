@@ -6,7 +6,7 @@ import type { TeamMember } from "@/lib/types";
 
 const uuid = z.string().uuid();
 const severity = z.enum(["critical", "high", "medium", "low", "info"]);
-const role = z.enum(["security_admin", "security_analyst", "security_manager", "system_admin", "management", "auditor"]);
+const role = z.enum(["security_admin", "security_analyst", "security_manager", "system_admin", "management", "auditor", "developer"]);
 
 // ---------------------------------------------------------------------------
 // Team & access
@@ -15,7 +15,7 @@ export const listUsers = createServerFn({ method: "GET" }).handler(async () => {
   const { guard } = await import("@/server/api.server");
   const { run } = await guard("users.manage");
   return run((tx) => tx<TeamMember[]>`
-    select u.id, u.email::text, u.display_name, u.status, u.email_verified, u.mfa_enabled, u.last_login_at, u.created_at, u.approved_at,
+    select u.id, u.email::text, u.display_name, u.status, u.email_verified, u.mfa_enabled, u.last_login_at, u.created_at, u.approved_at, u.team_id,
            coalesce(array_agg(r.role::text order by r.role) filter (where r.role is not null), '{}') as roles
     from users u left join user_roles r on r.user_id = u.id
     group by u.id order by (u.status = 'pending') desc, u.created_at`);
@@ -343,3 +343,53 @@ export const exportAudit = createServerFn({ method: "POST" }).handler(async () =
     return tx`select id::int, at, actor_email, action, target_type, target_id, detail::text, ip, hash from audit_log order by id desc limit 50000`;
   });
 });
+
+// ---------------------------------------------------------------------------
+// Teams (who owns what, and how to reach them)
+// ---------------------------------------------------------------------------
+const phone = z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Phone numbers in international format, e.g. +254703480258");
+
+export const saveTeam = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({
+    id: uuid.optional(),
+    name: z.string().trim().min(2).max(80),
+    description: z.string().trim().max(500).optional().nullable(),
+    emails: z.array(z.string().trim().email()).max(20).default([]),
+    telegram_chat_id: z.string().trim().regex(/^-?\d+$|^@\w+$/, "Telegram chat id like -1001234567890 or @channel").optional().nullable().or(z.literal("").transform(() => null)),
+    whatsapp_numbers: z.array(phone).max(20).default([]),
+  }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run } = await guard("teams.manage");
+    return run(async (tx) => {
+      if (data.id) {
+        await tx`update teams set name = ${data.name}, description = ${data.description ?? null}, emails = ${data.emails},
+                   telegram_chat_id = ${data.telegram_chat_id ?? null}, whatsapp_numbers = ${data.whatsapp_numbers} where id = ${data.id}`;
+        return { id: data.id };
+      }
+      const [row] = await tx`insert into teams (name, description, emails, telegram_chat_id, whatsapp_numbers)
+                             values (${data.name}, ${data.description ?? null}, ${data.emails}, ${data.telegram_chat_id ?? null}, ${data.whatsapp_numbers}) returning id`;
+      return { id: row!.id as string };
+    }).catch((e: Error) => {
+      if (/teams_name_key/.test(e.message)) throw new Error("A team with this name already exists.");
+      throw e;
+    });
+  });
+
+export const deleteTeam = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: uuid }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run } = await guard("teams.manage");
+    await run((tx) => tx`delete from teams where id = ${data.id}`);
+    return { ok: true };
+  });
+
+export const setUserTeam = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: uuid, teamId: uuid.nullable() }).parse(d))
+  .handler(async ({ data }) => {
+    const { guard } = await import("@/server/api.server");
+    const { run } = await guard("users.manage");
+    await run((tx) => tx`update users set team_id = ${data.teamId} where id = ${data.id}`);
+    return { ok: true };
+  });

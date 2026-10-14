@@ -26,8 +26,11 @@ Everything runs on your own server with Docker. There are no third-party platfor
 
 | Area | Capabilities |
 | --- | --- |
-| **Access** | Built-in sign-in (password + authenticator-app 2FA, optional Google), admin approval for every new account, company-domain lock, 6 roles, account lockout, session management |
-| **Assets** | Inventory with owner/criticality/tags; hosts reporting through agents are registered automatically; new subdomains discovered from certificate-transparency logs |
+| **Command Center** | One live screen: overall status, what needs attention now (with one-click "send to developer"), early warnings, health board of every system, issues with each team, team scorecard, last 2 hours of changes |
+| **Early warnings** | Response time degrading vs each system's own 7-day baseline, flapping services, certificates due for renewal, failed-login surges — raised before they become outages or breaches |
+| **Hand-off to developers** | Every alert comes with a diagnosis: what it means, impact, where, when, evidence, likely causes, where to look and fix steps. Send it to the owning team by email, Telegram and WhatsApp with a deadline (SLA) and a secure no-login link; developers acknowledge, comment and mark it fixed. Monitoring verifies the fix and reopens the issue if the problem returns |
+| **Access** | Built-in sign-in (password + authenticator-app 2FA, optional Google), admin approval for every new account, company-domain lock, 7 roles (incl. Developer — sees only their team's issues), account lockout, session management |
+| **Assets** | Inventory with owning team/criticality/tags — adding an asset starts monitoring it; hosts reporting through agents are registered automatically; new subdomains discovered from certificate-transparency logs |
 | **External surface** | Live uptime and response time, TLS certificate read from the server (expiry, trust, hostname), security headers, exposed risky ports (RDP, SMB, databases…), DNS name-server / MX changes. Alerts auto-resolve on recovery |
 | **Detection** | Brute force, password spraying, login-after-brute-force, off-hours privileged logins, Office→script chains and encoded PowerShell, LOLBin downloads, new admin accounts, cleared logs, new services, known-malicious IPs, silent agents, Wazuh alerts. Thresholds tunable per rule |
 | **Threat intel** | CISA KEV, abuse.ch Feodo, Spamhaus DROP, Tor exits — refreshed daily, matched on every event |

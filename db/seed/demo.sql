@@ -3,6 +3,19 @@
 -- Runs as the database owner (bypasses RLS); safe to run once.
 begin;
 
+-- Developer teams (description starts with [demo] so remove-demo.sql can find them).
+insert into public.teams (name, description) values
+('Web Team','[demo] Public website and marketing pages'),
+('Payments Engineering','[demo] Payment API, card gateway, settlement'),
+('Customer Ops','[demo] Customer portal'),
+('IT Operations','[demo] VPN, mail, AD, backups, office network'),
+('DBA','[demo] Core databases'),
+('Platform','[demo] Application servers and deployment'),
+('NetSec','[demo] Firewalls and edge network'),
+('Finance IT','[demo] Finance workstations'),
+('Engineering IT','[demo] Engineering workstations')
+on conflict do nothing;
+
 insert into public.assets (name, asset_type, address, owner, criticality, status, exposure, is_new, tls_expires_at, last_seen, tags, discovered_via) values
 ('finpaytech.com','website','https://finpaytech.com','Web Team','high','online','external',false, now()+interval '74 days', now(), '{demo}', 'manual'),
 ('api.finpaytech.com','api','https://api.finpaytech.com','Payments Eng','critical','online','external',false, now()+interval '12 days', now(), '{demo}', 'manual'),
@@ -19,6 +32,12 @@ insert into public.assets (name, asset_type, address, owner, criticality, status
 ('WS-FIN-014','endpoint','10.0.8.14','Finance','medium','online','internal',false,null, now(), '{demo}', 'agent'),
 ('WS-ENG-031','endpoint','10.0.8.31','Engineering','medium','online','internal',true,null, now(), '{demo}', 'agent'),
 ('backup-nas','server','10.0.3.40','IT Ops','high','online','internal',false,null, now()-interval '20 minutes', '{demo}', 'manual');
+
+update public.assets a set team_id = t.id from public.teams t
+where 'demo' = any(a.tags) and t.name = case a.owner
+  when 'Web Team' then 'Web Team' when 'Payments Eng' then 'Payments Engineering' when 'Customer Ops' then 'Customer Ops'
+  when 'IT Ops' then 'IT Operations' when 'DBA' then 'DBA' when 'Platform' then 'Platform' when 'NetSec' then 'NetSec'
+  when 'Finance' then 'Finance IT' when 'Engineering' then 'Engineering IT' end;
 
 -- Demo assets are not probed by the real external checks (they are not FINPAYTECH's live hosts yet).
 update public.assets set monitored = false where 'demo' = any(tags);
@@ -48,6 +67,45 @@ from (values
 ) as v(title,descr,sev,status,src,asset,rule,tactic,tech,ago,ack,inc)
 left join public.assets a on a.name = v.asset
 left join public.detection_rules r on r.key = v.rule;
+
+-- Two issues already handed to developers, so the hand-off pages have something to show.
+insert into public.issues (title, severity, status, team_id, asset_id, alert_id, dedupe_key, brief, soc_note, created_at, due_at, acknowledged_at)
+select v.title, v.sev::public.severity, v.status, t.id, a.id, al.id, v.dk,
+  jsonb_build_object(
+    'summary', v.title, 'meaning', v.meaning, 'impact', v.impact,
+    'where', jsonb_build_array(jsonb_build_object('label','System','value',a.name), jsonb_build_object('label','Address','value',coalesce(a.address,'—'))),
+    'when', jsonb_build_array(jsonb_build_object('label','First seen','value',to_char(now() - (v.ago || ' minutes')::interval, 'YYYY-MM-DD HH24:MI'))),
+    'evidence', jsonb_build_array(jsonb_build_object('label','Detail','value',v.ev)),
+    'checks', '[]'::jsonb, 'events', '[]'::jsonb,
+    'causes', to_jsonb(v.causes), 'whereToLook', to_jsonb(v.look), 'fix', to_jsonb(v.fix),
+    'verify', 'The SOC closes this automatically once the monitoring no longer sees the problem.', 'technique', null),
+  v.note, now() - (v.ago || ' minutes')::interval, now() + (v.due || ' minutes')::interval,
+  case when v.status <> 'open' then now() - ((v.ago - 20) || ' minutes')::interval end
+from (values
+ ('TLS certificate on api.finpaytech.com expires in 12 days','medium','in_progress','Payments Engineering','api.finpaytech.com','TLS certificate expires in 12 days','demo:cert-api',
+  'The HTTPS certificate for the payment API is close to expiry.','When it expires, every client and partner calling the API gets a certificate error and payments stop.',
+  'api cert expires in 12 days', array['Auto-renewal (certbot/ACME) failing','Certificate bought manually and not tracked'],
+  array['Load balancer / nginx TLS config','certbot logs: /var/log/letsencrypt/'], array['Renew the certificate','Reload nginx','Confirm the new expiry date with openssl s_client'],
+  'Please renew before the weekend.', 300, 3000),
+ ('staging-api.finpaytech.com is publicly reachable with an exposed .git directory','high','open','Payments Engineering','staging-api.finpaytech.com','New internet-facing asset discovered','demo:staging-exposed',
+  'A staging server is reachable from the internet and serves its .git folder.','Anyone can download the source code and any secrets committed to it.',
+  'GET /.git/HEAD returns 200', array['Staging deployed without the firewall rule','Web root points at the repository folder'],
+  array['Web server config for staging-api','Cloud security group / firewall'], array['Block /.git at the web server','Restrict staging to the VPN','Rotate any secrets in the repository history'],
+  null, 180, -60)
+) as v(title,sev,status,team,asset,alert_title,dk,meaning,impact,ev,causes,look,fix,note,ago,due)
+join public.teams t on t.name = v.team
+join public.assets a on a.name = v.asset
+left join public.alerts al on al.title = v.alert_title and al.asset_id = a.id;
+
+insert into public.issue_updates (issue_id, kind, body, author_label, created_at)
+select i.id, u.kind, u.body, u.who, now() - (u.ago || ' minutes')::interval
+from public.issues i join (values
+ ('demo:cert-api','system','Issue sent to Payments Engineering','SOC',300),
+ ('demo:cert-api','status','Status: open → acknowledged','Amina (Payments Engineering, via secure link)',280),
+ ('demo:cert-api','status','Status: acknowledged → in_progress','Amina (Payments Engineering, via secure link)',120),
+ ('demo:cert-api','comment','certbot renewal was failing because port 80 is closed on the LB. Switching to DNS challenge.','Amina (Payments Engineering, via secure link)',119),
+ ('demo:staging-exposed','system','Issue sent to Payments Engineering','SOC',180)
+) as u(dk,kind,body,who,ago) on u.dk = i.dedupe_key;
 
 update public.alerts set resolved_at = acknowledged_at + interval '40 minutes'
 where status in ('resolved','false_positive') and resolved_at is null and details ->> 'demo' = 'true';
