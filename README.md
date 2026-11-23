@@ -84,6 +84,7 @@ tests/unit/            unit tests (run with `npm run test:unit`)
 ## Documentation
 
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — install, configure, go live, backups, upgrades, troubleshooting
+- [docs/FINPAY-SOC-PROJECT-BRIEF.md](docs/FINPAY-SOC-PROJECT-BRIEF.md) — project explanation and FINPAY onboarding information request
 - [docs/SECURITY.md](docs/SECURITY.md) — security model and design decisions
 - [agents/README.md](agents/README.md) — connecting servers, laptops and Wazuh
 - [AGENTS.md](AGENTS.md) — conventions for developers (and AI coding assistants)

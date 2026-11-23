@@ -1,0 +1,342 @@
+﻿name: Application Security
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Run Semgrep
+        shell: bash
+        run: |
+          mkdir -p security-results/semgrep
+          docker run --rm \
+            -v "$PWD:/src" -w /src \
+            semgrep/semgrep:1.145.0 \
+            semgrep scan \
+              --config p/security-audit \
+              --config p/secrets \
+              --config p/owasp-top-ten \
+              --exclude node_modules \
+              --exclude .git \
+              --exclude .output \
+              --sarif --sarif-output security-results/semgrep/semgrep.sarif
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-semgrep
+          path: security-results/semgrep/
+          if-no-files-found: warn
+          retention-days: 30
+      - if: always()
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d
+        with:
+          sarif_file: security-results/semgrep/semgrep.sarif
+          category: semgrep
+
+  gitleaks:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        shell: bash
+        run: |
+          mkdir -p security-results/gitleaks
+          docker run --rm \
+            -v "$PWD:/repo" -w /repo \
+            zricethezav/gitleaks:v8.24.6 \
+            detect --source . --redact 100 --exit-code 0 --no-banner \
+              --report-format sarif --report-path security-results/gitleaks/gitleaks.sarif
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-gitleaks
+          path: security-results/gitleaks/
+          if-no-files-found: warn
+          retention-days: 30
+      - if: always()
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d
+        with:
+          sarif_file: security-results/gitleaks/gitleaks.sarif
+          category: gitleaks
+
+  trivy-filesystem:
+    name: Trivy filesystem
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Scan filesystem and dependencies
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          ignore-unfixed: true
+          format: sarif
+          output: security-results/trivy/trivy-fs.sarif
+          exit-code: "0"
+      - name: Generate application CycloneDX SBOM
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: security-results/sbom/application.cdx.json
+          exit-code: "0"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-sbom
+          path: security-results/sbom/application.cdx.json
+          if-no-files-found: warn
+          retention-days: 90
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-trivy-fs
+          path: security-results/trivy/trivy-fs.sarif
+          if-no-files-found: warn
+          retention-days: 30
+      - if: always()
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d
+        with:
+          sarif_file: security-results/trivy/trivy-fs.sarif
+          category: trivy-filesystem
+
+  trivy-config:
+    name: Trivy configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Scan Docker and infrastructure configuration
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: security-results/trivy/trivy-config.sarif
+          exit-code: "0"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-trivy-config
+          path: security-results/trivy/trivy-config.sarif
+          if-no-files-found: warn
+          retention-days: 30
+      - if: always()
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d
+        with:
+          sarif_file: security-results/trivy/trivy-config.sarif
+          category: trivy-config
+
+  trivy-image:
+    name: Trivy Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build application image
+        run: docker build --tag alertview-central:security-scan .
+      - name: Scan application image
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
+        with:
+          scan-type: image
+          image-ref: alertview-central:security-scan
+          ignore-unfixed: true
+          format: sarif
+          output: security-results/trivy/trivy-image.sarif
+          exit-code: "0"
+      - name: Generate container CycloneDX SBOM
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
+        with:
+          scan-type: image
+          image-ref: alertview-central:security-scan
+          format: cyclonedx
+          output: security-results/sbom/container.cdx.json
+          exit-code: "0"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-trivy-image
+          path: security-results/trivy/trivy-image.sarif
+          if-no-files-found: warn
+          retention-days: 30
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-sbom-container
+          path: security-results/sbom/container.cdx.json
+          if-no-files-found: warn
+          retention-days: 90
+      - if: always()
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d
+        with:
+          sarif_file: security-results/trivy/trivy-image.sarif
+          category: trivy-image
+
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Audit production dependencies
+        shell: bash
+        run: |
+          mkdir -p security-results/npm-audit
+          set +e
+          npm audit --omit=dev --json > security-results/npm-audit/npm-audit.json
+          audit_status=$?
+          set -e
+          if [ ! -s security-results/npm-audit/npm-audit.json ]; then
+            echo "::error::npm audit produced no JSON report"
+            exit 1
+          fi
+          echo "npm audit completed"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-npm-audit
+          path: security-results/npm-audit/npm-audit.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Run Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@1e54355a8b4c8abaa8cc7d0b70aa655a3bb15a6c
+        with:
+          project: "AlertView Central"
+          path: "."
+          format: "SARIF"
+          out: "security-results/dependency-check"
+          args: >
+            --exclude '**/node_modules/**'
+            --exclude '**/.git/**'
+            --exclude '**/.output/**'
+            --enableExperimental
+            --failOnCVSS 11
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-dependency-check
+          path: security-results/dependency-check/
+          if-no-files-found: warn
+          retention-days: 30
+      - if: always()
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d
+        with:
+          sarif_file: security-results/dependency-check/dependency-check-report.sarif
+          category: owasp-dependency-check
+
+  gate:
+    name: Security gate and report
+    needs:
+      - semgrep
+      - gitleaks
+      - trivy-filesystem
+      - trivy-config
+      - trivy-image
+      - npm-audit
+      - dependency-check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: security-*
+          path: security-results
+      - name: Normalize scanner artifacts
+        shell: bash
+        run: |
+          mkdir -p security-results/semgrep security-results/gitleaks security-results/trivy security-results/npm-audit security-results/dependency-check
+          cp security-results/security-semgrep/semgrep.sarif security-results/semgrep/semgrep.sarif 2>/dev/null || true
+          cp security-results/security-gitleaks/gitleaks.sarif security-results/gitleaks/gitleaks.sarif 2>/dev/null || true
+          cp security-results/security-trivy-fs/trivy-fs.sarif security-results/trivy/trivy-fs.sarif 2>/dev/null || true
+          cp security-results/security-trivy-config/trivy-config.sarif security-results/trivy/trivy-config.sarif 2>/dev/null || true
+          cp security-results/security-trivy-image/trivy-image.sarif security-results/trivy/trivy-image.sarif 2>/dev/null || true
+          cp security-results/security-npm-audit/npm-audit.json security-results/npm-audit/npm-audit.json 2>/dev/null || true
+          dependency_sarif="$(find security-results/security-dependency-check -type f -name '*.sarif' -print -quit 2>/dev/null)"
+          if [ -n "$dependency_sarif" ]; then cp "$dependency_sarif" security-results/dependency-check/dependency-check.sarif; fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Generate consolidated report
+        id: report
+        continue-on-error: true
+        run: node scripts/security/security-report.mjs "$GITHUB_WORKSPACE"
+        env:
+          SEMGREP_JOB_RESULT: ${{ needs.semgrep.result }}
+          GITLEAKS_JOB_RESULT: ${{ needs.gitleaks.result }}
+          TRIVY_FS_JOB_RESULT: ${{ needs.trivy-filesystem.result }}
+          TRIVY_CONFIG_JOB_RESULT: ${{ needs.trivy-config.result }}
+          TRIVY_IMAGE_JOB_RESULT: ${{ needs.trivy-image.result }}
+          NPM_AUDIT_JOB_RESULT: ${{ needs.npm-audit.result }}
+          DEPENDENCY_CHECK_JOB_RESULT: ${{ needs.dependency-check.result }}
+      - name: Upload consolidated report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-consolidated-report
+          path: security-results/consolidated.*
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Fail on new critical/high findings
+        if: steps.report.outcome == 'failure'
+        run: |
+          echo "::error::One or more new CRITICAL or HIGH findings were found."
+          exit 1

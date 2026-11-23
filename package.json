@@ -16,7 +16,11 @@
     "format": "prettier --write .",
     "test": "vitest run && npm run test:unit",
     "test:watch": "vitest",
-    "test:unit": "tsx --test tests/unit/*.test.ts"
+    "test:unit": "tsx --test tests/unit/*.test.ts",
+    "security:baseline": "node scripts/security/establish-baseline.mjs",
+    "security:baseline:partial": "node scripts/security/establish-baseline.mjs --allow-partial",
+    "security:report": "node scripts/security/security-report.mjs .",
+    "security:report:local": "node scripts/security/security-report.mjs . --allow-local-missing"
   },
   "overrides": {
     "rolldown": "1.2.1"

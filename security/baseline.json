@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "established_at": "2026-11-23T11:41:20.994Z",
+  "description": "Exact known scanner findings accepted during the initial baseline period.",
+  "findings": [
+    {
+      "scanner": "npm audit",
+      "severity": "high",
+      "rule": "npm-audit:zod:GHSA-mrhx-c7xc-m3w5",
+      "file": "package-lock.json",
+      "line": null,
+      "description": "zod: Zod can exhaust memory while validating oversized constrained collections",
+      "fingerprint": "0acb5b086fc68e631e37a4af",
+      "accepted": "initial-baseline"
+    },
+    {
+      "scanner": "npm audit",
+      "severity": "high",
+      "rule": "npm-audit:vite:GHSA-587h-7wmj-h5pm,GHSA-698v-4r3x-3vcv,GHSA-9jrq-w75r-8gcw,GHSA-r825-w8mm-5pxw,GHSA-rq7h-c2jc-7f22",
+      "file": "package-lock.json",
+      "line": null,
+      "description": "vite: launch-editor: escapeCmdArgs() omits % escaping on Windows; launch-editor: Editor CLI flag misinterpretation causing arbitrary command execution for some editors; launch-editor: `fs.existsSync()` existence check can be bypassed on Windows; Vite: Cross origin script execution through Vite custom middleware; Vite: Files outside `server.fs.allow` could be served when project paths match system paths on non-Windows machine",
+      "fingerprint": "6acfeec390272eb3b4f2b5f7",
+      "accepted": "initial-baseline"
+    },
+    {
+      "scanner": "npm audit",
+      "severity": "high",
+      "rule": "npm-audit:nodemailer:GHSA-268h-hp4c-crq3,GHSA-2x7j-588g-ccc2,GHSA-39m8-27wv-hr27,GHSA-4ffr-jq9g-5ffx,GHSA-4g23-2xm8-66gc,GHSA-6vj9-mwq6-2f5v,GHSA-85x2-q946-cp5h,GHSA-8c8m-p3m8-cjg8,GHSA-8m3c-c648-2xjj,GHSA-8vvx-rff5-p5rq,GHSA-c7w3-x93f-qmm8,GHSA-cc9r-2j5m-2m83,GHSA-g73g-hqqh-jr95,GHSA-m943-m63m-w62w,GHSA-p6gq-j5cr-w38f,GHSA-r7g4-qg5f-qqm2,GHSA-v53p-9fqp-m79j,GHSA-vvjj-xcjg-gr5g,GHSA-wmmp-3585-3rmp,GHSA-wqvq-jvpq-h66f",
+      "file": "package-lock.json",
+      "line": null,
+      "description": "nodemailer: Nodemailer has SMTP command injection due to unsanitized `envelope.size` parameter; Nodemailer Vulnerable to SMTP Command Injection via CRLF in Transport name Option (EHLO/HELO) ; Nodemailer: CRLF injection in Nodemailer List-* header comments allows arbitrary message header injection; Nodemailer jsonTransport bypasses disableFileAccess and disableUrlAccess during message normalization; Nodemailer: Message-level raw option bypasses disableFileAccess/disableUrlAccess, enabling arbitra",
+      "fingerprint": "b805bc4c006c39a9ffd60a57",
+      "accepted": "initial-baseline"
+    },
+    {
+      "scanner": "npm audit",
+      "severity": "medium",
+      "rule": "npm-audit:seroval:GHSA-9wx9-5pv9-3349,GHSA-f86p-h4j2-7qgj",
+      "file": "package-lock.json",
+      "line": null,
+      "description": "seroval: Seroval: Code injection through a typed array's own constructor property; Seroval: Script injection through RegExp sources in serialized output",
+      "fingerprint": "cf84956d8aad041876b2ba2e",
+      "accepted": "initial-baseline"
+    },
+    {
+      "scanner": "Semgrep OSS",
+      "severity": "medium",
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "file": "agents\\wazuh\\custom-finpay-soc.py",
+      "line": 38,
+      "description": "Detected a dynamic value being used with urllib. urllib supports 'file://' schemes, so a dynamic value controlled by a malicious actor may allow them to read arbitrary files. Audit uses of urllib calls to ensure user data cannot control the URLs, or consider using the 'requests' library instead.",
+      "fingerprint": "0b6829d155eb6e3dd0902272",
+      "accepted": "initial-baseline"
+    },
+    {
+      "scanner": "Semgrep OSS",
+      "severity": "medium",
+      "rule": "javascript.express.security.x-frame-options-misconfiguration.x-frame-options-misconfiguration",
+      "file": "src\\server.ts",
+      "line": 66,
+      "description": "By letting user input control `X-Frame-Options` header, there is a risk that software does not properly verify whether or not a browser should be allowed to render a page in an `iframe`.",
+      "fingerprint": "64af16ddc56ac43761ceaca3",
+      "accepted": "initial-baseline"
+    },
+    {
+      "scanner": "Semgrep OSS",
+      "severity": "medium",
+      "rule": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+      "file": "agents\\linux\\finpay-soc-agent.py",
+      "line": 118,
+      "description": "Detected a dynamic value being used with urllib. urllib supports 'file://' schemes, so a dynamic value controlled by a malicious actor may allow them to read arbitrary files. Audit uses of urllib calls to ensure user data cannot control the URLs, or consider using the 'requests' library instead.",
+      "fingerprint": "a59170a425f604befa48a309",
+      "accepted": "initial-baseline"
+    },
+    {
+      "scanner": "Semgrep OSS",
+      "severity": "critical",
+      "rule": "javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length",
+      "file": "src\\server\\crypto.server.ts",
+      "line": 78,
+      "description": "The call to 'createDecipheriv' with the Galois Counter Mode (GCM) mode of operation is missing an expected authentication tag length. If the expected authentication tag length is not specified or otherwise checked, the application might be tricked into verifying a shorter-than-expected authentication tag. This can be abused by an attacker to spoof ciphertexts or recover the implicit authentication key of GCM, allowing arbitrary forgeries.",
+      "fingerprint": "aa8570289b762ced9be59793",
+      "accepted": "initial-baseline"
+    }
+  ]
+}

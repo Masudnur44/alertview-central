@@ -1,0 +1,87 @@
+name: OWASP ZAP Baseline DAST
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "master"]
+  schedule:
+    - cron: "53 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dast-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline-dast:
+    name: ZAP baseline against local instance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: zaptest
+          POSTGRES_USER: zap_owner
+          POSTGRES_PASSWORD: disposable-zap-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zap_owner -d zaptest"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install and build local disposable instance
+        env:
+          DATABASE_URL: postgres://soc_app:disposable-zap-app-password@127.0.0.1:5432/zaptest
+          MIGRATION_DATABASE_URL: postgres://zap_owner:disposable-zap-password@127.0.0.1:5432/zaptest
+          SOC_APP_DB_PASSWORD: disposable-zap-app-password
+          APP_URL: http://127.0.0.1:3000
+          APP_SECRET: 0000000000000000000000000000000000000000000000000000000000000000
+          REQUIRE_MFA: "false"
+          ALLOW_SIGNUP: "false"
+          NODE_ENV: production
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          npm run db:migrate
+          node .output/server/index.mjs > zap-app.log 2>&1 &
+          echo $! > zap-app.pid
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --silent --show-error http://127.0.0.1:3000/api/health | grep -q '"db":"ok"'; then exit 0; fi
+            sleep 3
+          done
+          cat zap-app.log
+          exit 1
+      - name: Run ZAP baseline scan
+        uses: zaproxy/action-baseline@7c4deb10e6261301961c86d65d54a516394f9aed
+        with:
+          target: "http://127.0.0.1:3000/"
+          fail_action: false
+          allow_issue_writing: false
+          artifact_name: zap-baseline-report
+          cmd_options: "-I -m 5"
+      - name: Stop disposable instance
+        if: always()
+        run: |
+          if [ -f zap-app.pid ]; then kill "$(cat zap-app.pid)" || true; fi
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zap-baseline-report
+          path: |
+            zap-app.log
+            report_html.html
+            report_json.json
+            report_md.md
+          if-no-files-found: warn
+          retention-days: 30

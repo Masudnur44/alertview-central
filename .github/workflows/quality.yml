@@ -1,0 +1,53 @@
+﻿name: Build and Quality
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Install, lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: npm audit
+        shell: bash
+        run: |
+          mkdir -p security-results/npm-audit
+          set +e
+          npm audit --omit=dev --json > security-results/npm-audit/npm-audit.json
+          audit_status=$?
+          set -e
+          echo "npm audit exit status: $audit_status"
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-npm-audit
+          path: security-results/npm-audit/npm-audit.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Type check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build

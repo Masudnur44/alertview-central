@@ -41,3 +41,6 @@ src/routeTree.gen.ts
 # Python
 __pycache__/
 *.pyc
+
+# Security scan output
+security-results/
