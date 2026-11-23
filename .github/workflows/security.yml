@@ -1,4 +1,4 @@
-﻿name: Application Security
+name: Application Security
 
 on:
   push:
@@ -41,7 +41,7 @@ jobs:
               --exclude .output \
               --sarif --sarif-output security-results/semgrep/semgrep.sarif
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-semgrep
           path: security-results/semgrep/
@@ -74,7 +74,7 @@ jobs:
             detect --source . --redact 100 --exit-code 0 --no-banner \
               --report-format sarif --report-path security-results/gitleaks/gitleaks.sarif
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-gitleaks
           path: security-results/gitleaks/
@@ -114,14 +114,14 @@ jobs:
           output: security-results/sbom/application.cdx.json
           exit-code: "0"
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-sbom
           path: security-results/sbom/application.cdx.json
           if-no-files-found: warn
           retention-days: 90
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-trivy-fs
           path: security-results/trivy/trivy-fs.sarif
@@ -151,7 +151,7 @@ jobs:
           output: security-results/trivy/trivy-config.sarif
           exit-code: "0"
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-trivy-config
           path: security-results/trivy/trivy-config.sarif
@@ -192,14 +192,14 @@ jobs:
           output: security-results/sbom/container.cdx.json
           exit-code: "0"
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-trivy-image
           path: security-results/trivy/trivy-image.sarif
           if-no-files-found: warn
           retention-days: 30
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-sbom-container
           path: security-results/sbom/container.cdx.json
@@ -239,7 +239,7 @@ jobs:
           fi
           echo "npm audit completed"
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-npm-audit
           path: security-results/npm-audit/npm-audit.json
@@ -269,7 +269,7 @@ jobs:
             --enableExperimental
             --failOnCVSS 11
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-dependency-check
           path: security-results/dependency-check/
@@ -329,7 +329,7 @@ jobs:
           DEPENDENCY_CHECK_JOB_RESULT: ${{ needs.dependency-check.result }}
       - name: Upload consolidated report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-consolidated-report
           path: security-results/consolidated.*
