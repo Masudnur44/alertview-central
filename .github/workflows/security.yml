@@ -1,4 +1,4 @@
-﻿name: Application Security
+name: Application Security
 
 on:
   push:
@@ -219,7 +219,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "22"
           cache: "npm"
@@ -312,7 +312,7 @@ jobs:
           cp security-results/security-npm-audit/npm-audit.json security-results/npm-audit/npm-audit.json 2>/dev/null || true
           dependency_sarif="$(find security-results/security-dependency-check -type f -name '*.sarif' -print -quit 2>/dev/null)"
           if [ -n "$dependency_sarif" ]; then cp "$dependency_sarif" security-results/dependency-check/dependency-check.sarif; fi
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "22"
       - name: Generate consolidated report
